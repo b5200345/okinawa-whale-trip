@@ -1436,15 +1436,15 @@ function OkinawaMapTab() {
     const list: (MapTileImageProps & { key: string })[] = [];
     for (let tx = minTx; tx <= maxTx; tx++) {
       for (let ty = minTy; ty <= maxTy; ty++) {
-        const sub = ['a', 'b', 'c'][(tx + ty) % 3];
-        const streetUrl = `https://${sub}.basemaps.cartocdn.com/rastertiles/voyager/${tileZ}/${tx}/${ty}@2x.png`;
-        const osmFallback = `https://tile.openstreetmap.org/${tileZ}/${tx}/${ty}.png`;
+        const streetUrl = `https://tile.openstreetmap.jp/styles/osm-bright-ja/${tileZ}/${tx}/${ty}.png`;
+        const streetFallback = `https://cyberjapandata.gsi.go.jp/xyz/pale/${tileZ}/${tx}/${ty}.png`;
         const satUrl = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${tileZ}/${ty}/${tx}`;
+        const satFallback = `https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/${tileZ}/${tx}/${ty}.jpg`;
 
         list.push({
           key: `${isSatellite ? 'sat' : 'str'}-${tileZ}-${tx}-${ty}`,
           url: isSatellite ? satUrl : streetUrl,
-          fallbackUrl: isSatellite ? null : osmFallback,
+          fallbackUrl: isSatellite ? satFallback : streetFallback,
           left: boxSize.width / 2 + (tx * displayTileSize - centerWorldX),
           top: boxSize.height / 2 + (ty * displayTileSize - centerWorldY),
           size: displayTileSize,
