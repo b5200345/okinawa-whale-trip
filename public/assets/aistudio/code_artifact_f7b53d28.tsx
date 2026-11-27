@@ -2520,8 +2520,17 @@ const PREVIEW_SIZE = 240;
 const HEAD_RX = 72;
 const HEAD_RY = 88;
 
+function isCoachMember(memberId: string): boolean {
+  return memberId === 'coach1' || memberId === 'coach2';
+}
+
+function getAvatarKey(groupId: string, memberId: string): string {
+  return isCoachMember(memberId) ? memberId : `${groupId}_${memberId}`;
+}
+
 interface AvatarCropModalProps {
   initialMember: Member | null;
+  activeGroupLabel: string;
   avatars: Record<string, string>;
   onClose: () => void;
   onSaveAvatar: (memberId: string, dataUrl: string) => Promise<void>;
@@ -2530,6 +2539,7 @@ interface AvatarCropModalProps {
 
 function AvatarCropModal({
   initialMember,
+  activeGroupLabel,
   avatars,
   onClose,
   onSaveAvatar,
@@ -2706,7 +2716,9 @@ function AvatarCropModal({
               📷 火柴人頭部貼紙設定
             </h2>
             <p className="text-[12px] font-semibold text-[#0369a1]">
-              只裁切頭部並自動加上貼紙白邊，全團同步顯示
+              {isCoachMember(targetId)
+                ? '帶隊教練頭像會同步顯示於第 1 團與第 2 團'
+                : `${activeGroupLabel}專屬頭像，與另一團團員分開獨立顯示`}
             </p>
           </div>
           <button
@@ -2902,6 +2914,10 @@ export default function App() {
   const [isClaiming, setIsClaiming] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [newItemText, setNewItemText] = useState('');
+  const [showCoachPanel, setShowCoachPanel] = useState(false);
+  const [coachPinInput, setCoachPinInput] = useState('');
+  const [coachPinError, setCoachPinError] = useState<string | null>(null);
+  const [isCoachUnlocked, setIsCoachUnlocked] = useState(false);
   const calcRef = useRef<HTMLElement | null>(null);
 
   // (1) 初始化驗證並監聽登入狀態（若尚未設定 Firebase 則自動切換為本機儲存模式）
@@ -3136,6 +3152,117 @@ export default function App() {
     }
   }, [user, myClaimedMemberId, isClaiming, activeGroupId]);
 
+  const closeMemberModal = useCallback(() => {
+    setShowMemberModal(false);
+    setShowCoachPanel(false);
+    setCoachPinInput('');
+    setCoachPinError(null);
+    setIsCoachUnlocked(false);
+  }, []);
+
+  const handleVerifyCoachPin = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      if (coachPinInput.trim() === '1105') {
+        setIsCoachUnlocked(true);
+        setCoachPinInput('');
+        setCoachPinError(null);
+      } else {
+        setCoachPinError('密碼錯誤，請重新輸入。');
+      }
+    },
+    [coachPinInput]
+  );
+
+  // 教練強制解鎖指定團員的認領名額
+  const handleForceReleaseClaim = useCallback(
+    async (memberId: string) => {
+      if (!isCoachUnlocked || isClaiming) return;
+      setSyncError(null);
+      const claimKey = `${activeGroupId}_${memberId}`;
+      if (!db) {
+        setClaims((prev) => {
+          const next = { ...prev };
+          delete next[claimKey];
+          try {
+            localStorage.setItem('okinawa_whale_claims_v1', JSON.stringify(next));
+          } catch {
+            // 忽略儲存限制
+          }
+          return next;
+        });
+        return;
+      }
+      setIsClaiming(true);
+      try {
+        const claimRef = doc(
+          db,
+          'artifacts',
+          appId,
+          'public',
+          'data',
+          'member_claims',
+          claimKey
+        );
+        await deleteDoc(claimRef);
+      } catch (err) {
+        console.error('強制解鎖失敗:', err);
+        setSyncError('強制解鎖失敗，請確認網路連線後再試。');
+      } finally {
+        setIsClaiming(false);
+      }
+    },
+    [isCoachUnlocked, isClaiming, activeGroupId]
+  );
+
+  // 教練一鍵解鎖目前團別所有已認領名額
+  const handleForceReleaseAllClaims = useCallback(async () => {
+    if (!isCoachUnlocked || isClaiming) return;
+    const lockedMembers = MEMBERS.filter((m) => Boolean(claims[`${activeGroupId}_${m.id}`]));
+    if (lockedMembers.length === 0) return;
+    setSyncError(null);
+
+    if (!db) {
+      setClaims((prev) => {
+        const next = { ...prev };
+        lockedMembers.forEach((m) => {
+          delete next[`${activeGroupId}_${m.id}`];
+        });
+        try {
+          localStorage.setItem('okinawa_whale_claims_v1', JSON.stringify(next));
+        } catch {
+          // 忽略儲存限制
+        }
+        return next;
+      });
+      return;
+    }
+
+    setIsClaiming(true);
+    try {
+      await Promise.all(
+        lockedMembers.map((m) =>
+          deleteDoc(
+            doc(
+              db,
+              'artifacts',
+              appId,
+              'public',
+              'data',
+              'member_claims',
+              `${activeGroupId}_${m.id}`
+            )
+          )
+        )
+      );
+    } catch (err) {
+      console.error('全部強制解鎖失敗:', err);
+      setSyncError('全部解鎖失敗，請確認網路連線後再試。');
+    } finally {
+      setIsClaiming(false);
+    }
+  }, [isCoachUnlocked, isClaiming, activeGroupId, claims]);
+
   const handleSelectGroup = useCallback(
     (groupId: string) => {
       const targetGroup = TRIP_GROUPS.find((g) => g.id === groupId) || TRIP_GROUPS[0];
@@ -3211,10 +3338,21 @@ export default function App() {
     [user, activeGroupId, activeMemberId, activeMember, gameScores]
   );
 
+  // 依目前團別解析各成員對應頭像：兩位帶隊教練共用、7 位團員兩團各自獨立
+  const groupAvatars = useMemo(() => {
+    const mapped: Record<string, string> = {};
+    MEMBERS.forEach((m) => {
+      const url = avatars[getAvatarKey(activeGroupId, m.id)];
+      if (url) mapped[m.id] = url;
+    });
+    return mapped;
+  }, [avatars, activeGroupId]);
+
   const handleSaveAvatar = useCallback(
     async (memberId: string, dataUrl: string) => {
+      const avatarKey = getAvatarKey(activeGroupId, memberId);
       setAvatars((prev) => {
-        const next = { ...prev, [memberId]: dataUrl };
+        const next = { ...prev, [avatarKey]: dataUrl };
         try {
           localStorage.setItem('okinawa_whale_avatars_v1', JSON.stringify(next));
         } catch {
@@ -3231,10 +3369,11 @@ export default function App() {
           'public',
           'data',
           'member_avatars',
-          memberId
+          avatarKey
         );
         await setDoc(avatarRef, {
           memberId,
+          groupId: isCoachMember(memberId) ? 'shared' : activeGroupId,
           dataUrl,
           updatedAt: Date.now(),
         });
@@ -3242,14 +3381,15 @@ export default function App() {
         console.error('同步火柴人頭像失敗:', err);
       }
     },
-    [user]
+    [user, activeGroupId]
   );
 
   const handleRemoveAvatar = useCallback(
     async (memberId: string) => {
+      const avatarKey = getAvatarKey(activeGroupId, memberId);
       setAvatars((prev) => {
         const next = { ...prev };
-        delete next[memberId];
+        delete next[avatarKey];
         try {
           localStorage.setItem('okinawa_whale_avatars_v1', JSON.stringify(next));
         } catch {
@@ -3266,14 +3406,14 @@ export default function App() {
           'public',
           'data',
           'member_avatars',
-          memberId
+          avatarKey
         );
         await deleteDoc(avatarRef);
       } catch (err) {
         console.error('移除火柴人頭像失敗:', err);
       }
     },
-    [user]
+    [user, activeGroupId]
   );
 
   const openCurrencyConverter = useCallback(() => {
@@ -3452,9 +3592,9 @@ export default function App() {
               className="relative grid h-11 w-11 place-items-center rounded-full border-2 border-white text-[20px] text-white shadow-sm transition active:scale-95"
               style={{ backgroundColor: activeMember.color }}
             >
-              {avatars[activeMember.id] ? (
+              {groupAvatars[activeMember.id] ? (
                 <img
-                  src={avatars[activeMember.id]}
+                  src={groupAvatars[activeMember.id]}
                   alt={activeMember.name}
                   className="h-10 w-10 rounded-full object-cover"
                 />
@@ -3488,7 +3628,8 @@ export default function App() {
       {cropTargetMember && (
         <AvatarCropModal
           initialMember={cropTargetMember}
-          avatars={avatars}
+          activeGroupLabel={activeGroup.label}
+          avatars={groupAvatars}
           onClose={() => setCropTargetMember(null)}
           onSaveAvatar={handleSaveAvatar}
           onRemoveAvatar={handleRemoveAvatar}
@@ -3499,7 +3640,7 @@ export default function App() {
       {showMemberModal && (
         <div
           className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 backdrop-blur-[2px] sm:items-center"
-          onClick={() => setShowMemberModal(false)}
+          onClick={closeMemberModal}
         >
           <div
             className="max-h-[85vh] w-full max-w-sm overflow-y-auto rounded-3xl border border-[#e7e2d8] bg-white p-5 shadow-2xl"
@@ -3516,7 +3657,7 @@ export default function App() {
               </div>
               <button
                 type="button"
-                onClick={() => setShowMemberModal(false)}
+                onClick={closeMemberModal}
                 className="grid h-9 w-9 place-items-center rounded-full bg-[#faf7f2] text-[#57534e]"
               >
                 <X className="h-5 w-5" />
@@ -3583,9 +3724,9 @@ export default function App() {
                     {m.hasCrown && (
                       <span className="absolute top-1.5 right-1.5 text-[12px]">👑</span>
                     )}
-                    {avatars[m.id] ? (
+                    {groupAvatars[m.id] ? (
                       <img
-                        src={avatars[m.id]}
+                        src={groupAvatars[m.id]}
                         alt={m.name}
                         className="h-11 w-10 object-contain drop-shadow-sm"
                       />
@@ -3623,7 +3764,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => {
-                setShowMemberModal(false);
+                closeMemberModal();
                 setCropTargetMember(activeMember);
               }}
               className="mt-3.5 flex min-h-10 w-full items-center justify-center gap-1.5 rounded-2xl border border-[#bae6fd] bg-[#f0f9ff] text-[13px] font-extrabold text-[#0369a1] transition active:scale-95"
@@ -3631,6 +3772,133 @@ export default function App() {
               <Camera className="h-4 w-4" />
               <span>設定 / 裁切火柴人照片頭像</span>
             </button>
+
+            {/* 帶隊教練密碼強制解鎖區塊 */}
+            <div className="mt-3 rounded-2xl border border-[#e7e2d8] bg-[#faf7f2] p-3">
+              {!showCoachPanel ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCoachPanel(true);
+                    setCoachPinError(null);
+                  }}
+                  className="flex w-full items-center justify-center gap-1.5 text-[12.5px] font-bold text-[#57534e] transition active:scale-95"
+                >
+                  <Unlock className="h-3.5 w-3.5 text-[#c2410c]" />
+                  <span>帶隊教練管理：強制解鎖團員名額</span>
+                </button>
+              ) : !isCoachUnlocked ? (
+                <form onSubmit={handleVerifyCoachPin} className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[12.5px] font-extrabold text-[#0f293a]">
+                      🔐 輸入教練密碼以解鎖名額
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowCoachPanel(false);
+                        setCoachPinInput('');
+                        setCoachPinError(null);
+                      }}
+                      className="text-[11.5px] font-bold text-[#6b7280]"
+                    >
+                      取消
+                    </button>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      maxLength={8}
+                      value={coachPinInput}
+                      onChange={(e) => {
+                        setCoachPinInput(e.target.value);
+                        if (coachPinError) setCoachPinError(null);
+                      }}
+                      placeholder="請輸入教練密碼"
+                      className="min-h-10 flex-1 rounded-xl border border-[#d6d3d1] bg-white px-3 text-[14px] font-bold text-[#0f293a] focus:border-[#0369a1] focus:outline-none"
+                    />
+                    <button
+                      type="submit"
+                      className="min-h-10 rounded-xl bg-[#0c4a6e] px-4 text-[13px] font-extrabold text-white transition active:scale-95"
+                    >
+                      驗證
+                    </button>
+                  </div>
+                  {coachPinError && (
+                    <p className="text-[12px] font-bold text-[#b91c1c]">{coachPinError}</p>
+                  )}
+                </form>
+              ) : (
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[12.5px] font-extrabold text-[#c2410c]">
+                      🔓 教練強制解鎖模式（{activeGroup.label}）
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCoachUnlocked(false);
+                        setShowCoachPanel(false);
+                      }}
+                      className="text-[11.5px] font-bold text-[#6b7280]"
+                    >
+                      結束
+                    </button>
+                  </div>
+
+                  {(() => {
+                    const lockedList = MEMBERS.filter((m) =>
+                      Boolean(claims[`${activeGroupId}_${m.id}`])
+                    );
+                    if (lockedList.length === 0) {
+                      return (
+                        <p className="rounded-xl bg-white px-3 py-2 text-center text-[12px] font-semibold text-[#6b7280]">
+                          目前沒有已鎖定的名額
+                        </p>
+                      );
+                    }
+                    return (
+                      <>
+                        <div className="space-y-1.5">
+                          {lockedList.map((m) => (
+                            <div
+                              key={m.id}
+                              className="flex items-center justify-between rounded-xl border border-[#e7e2d8] bg-white px-3 py-2"
+                            >
+                              <div className="flex items-center gap-2 text-[13px] font-bold text-[#0f293a]">
+                                <span>{m.emoji}</span>
+                                <span>{m.name}</span>
+                              </div>
+                              <button
+                                type="button"
+                                disabled={isClaiming}
+                                onClick={() => handleForceReleaseClaim(m.id)}
+                                className="flex items-center gap-1 rounded-full bg-[#fff7ed] px-3 py-1 text-[12px] font-extrabold text-[#c2410c] transition active:scale-95 disabled:opacity-50"
+                              >
+                                <Unlock className="h-3 w-3" />
+                                <span>強制解鎖</span>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                        {lockedList.length >= 2 && (
+                          <button
+                            type="button"
+                            disabled={isClaiming}
+                            onClick={handleForceReleaseAllClaims}
+                            className="flex min-h-9 w-full items-center justify-center gap-1 rounded-xl border border-[#fed7aa] bg-[#fff7ed] text-[12px] font-extrabold text-[#c2410c] transition active:scale-95 disabled:opacity-50"
+                          >
+                            <Unlock className="h-3.5 w-3.5" />
+                            <span>一鍵解鎖本團全部（{lockedList.length} 人）</span>
+                          </button>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
 
             {user && (
               <div className="mt-3 rounded-xl bg-[#faf7f2] px-3 py-2 text-[11px] break-all text-[#6b7280]">
@@ -3669,7 +3937,7 @@ export default function App() {
 
             <CrewPlayground
               activeMemberId={activeMemberId}
-              avatars={avatars}
+              avatars={groupAvatars}
               onOpenAvatarCrop={(member) => setCropTargetMember(member)}
               onSelectMember={(id) => {
                 if (!isMemberLocked) {
