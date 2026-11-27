@@ -14,6 +14,14 @@ import {
   onSnapshot,
   collection,
 } from 'firebase/firestore';
+import * as maplibregl from 'maplibre-gl';
+import type {
+  GeoJSONSource,
+  Map as MLMap,
+  Marker as MLMarker,
+} from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import {
   Home,
   CalendarDays,
@@ -38,7 +46,6 @@ import {
   ShieldAlert,
   Satellite,
   Mountain,
-  Compass,
   Crosshair,
   Navigation,
   RefreshCw,
@@ -54,6 +61,8 @@ import {
   Gamepad2,
   Trophy,
   Camera,
+  Play,
+  Pause,
 } from 'lucide-react';
 
 declare const __firebase_config: string | undefined;
@@ -1184,153 +1193,52 @@ function CrewPlayground({
 }
 
 // ============================================================================
-// 4. 沖繩那霸 & 慶良間互動地圖 (OkinawaMapTab)
+// 4. 沖繩那霸 & 慶良間互動地圖 (OkinawaMapTab — MapLibre GL JS + OpenFreeMap + 3D 地形)
 // ============================================================================
 
-const TILE_SIZE = 256;
+// 免 API Key 的公開向量底圖、衛星影像與高程地形圖資（參考 Ireland-trip 地圖架構）
+const OPENFREEMAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
+const ESRI_SATELLITE_TILES =
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+const AWS_TERRARIUM_DEM =
+  'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
 
-function lngToWorldX(lng: number, zoom: number): number {
-  return ((lng + 180) / 360) * TILE_SIZE * Math.pow(2, zoom);
+function getPinColor(place: Place): string {
+  if (place.category === '追鯨') return '#0c4a6e';
+  if (place.category === '美食') return '#c2410c';
+  if (place.category === '超市' || place.category === '逛街') return '#0f766e';
+  if (place.category === '碼頭') return '#0369a1';
+  return '#475569';
 }
 
-function latToWorldY(lat: number, zoom: number): number {
-  const rad = (lat * Math.PI) / 180;
-  const mercN = Math.log(Math.tan(Math.PI / 4 + rad / 2));
-  return (0.5 - mercN / (2 * Math.PI)) * TILE_SIZE * Math.pow(2, zoom);
-}
-
-function worldXToLng(x: number, zoom: number): number {
-  return (x / (TILE_SIZE * Math.pow(2, zoom))) * 360 - 180;
-}
-
-function worldYToLat(y: number, zoom: number): number {
-  const n = Math.PI - (2 * Math.PI * y) / (TILE_SIZE * Math.pow(2, zoom));
-  return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
-}
-
-// 沖繩南部與慶良間群島簡化向量底圖（離線也完全可用）
-const OKINAWA_SOUTH_COASTLINE: [number, number][] = [
-  [127.64, 26.205],
-  [127.665, 26.225],
-  [127.695, 26.255],
-  [127.74, 26.32],
-  [127.83, 26.31],
-  [127.82, 26.23],
-  [127.83, 26.15],
-  [127.78, 26.1],
-  [127.67, 26.08],
-  [127.65, 26.14],
-];
-
-const KERAMA_TOKASHIKI_COASTLINE: [number, number][] = [
-  [127.345, 26.235],
-  [127.375, 26.225],
-  [127.37, 26.16],
-  [127.34, 26.165],
-];
-
-const KERAMA_ZAMAMI_COASTLINE: [number, number][] = [
-  [127.28, 26.24],
-  [127.32, 26.235],
-  [127.31, 26.215],
-  [127.275, 26.22],
-];
-
-interface MapTileImageProps {
-  url: string;
-  fallbackUrl: string | null;
-  left: number;
-  top: number;
-  size: number;
-}
-
-function MapTileImage({ url, fallbackUrl, left, top, size }: MapTileImageProps) {
-  const [src, setSrc] = useState(url);
-  const [loaded, setLoaded] = useState(false);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    setSrc(url);
-    setLoaded(false);
-    setFailed(false);
-  }, [url]);
-
-  if (failed) return null;
-
-  return (
-    <img
-      src={src}
-      alt=""
-      draggable={false}
-      onLoad={() => setLoaded(true)}
-      onError={() => {
-        if (fallbackUrl && src !== fallbackUrl) {
-          setSrc(fallbackUrl);
-        } else {
-          setFailed(true);
-        }
-      }}
-      style={{
-        position: 'absolute',
-        left: `${left}px`,
-        top: `${top}px`,
-        width: `${size + 0.6}px`,
-        height: `${size + 0.6}px`,
-        opacity: loaded ? 1 : 0,
-        transition: 'opacity 180ms ease-out',
-        pointerEvents: 'none',
-        userSelect: 'none',
-      }}
-    />
-  );
+function getPinLabel(place: Place): string {
+  if (place.category === '追鯨') return '🐋';
+  if (place.category === '美食') return '🍽️';
+  if (place.category === '超市') return '🛒';
+  if (place.category === '碼頭') return '⚓';
+  if (place.category === '交通') return '✈️';
+  return '📍';
 }
 
 function OkinawaMapTab() {
-  const mapBoxRef = useRef<HTMLDivElement | null>(null);
-  const dragStateRef = useRef<{
-    startX: number;
-    startY: number;
-    startWorldX: number;
-    startWorldY: number;
-    zoomAtStart: number;
-  } | null>(null);
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<MLMap | null>(null);
+  const markersRef = useRef<MLMarker[]>([]);
+  const tourRunRef = useRef(0);
+  const is3DRef = useRef(false);
+  const lastTerrainRef = useRef(false);
 
-  const [boxSize, setBoxSize] = useState({ width: 390, height: 440 });
-  const [center, setCenter] = useState({ lng: 127.58, lat: 26.21 });
-  const [zoom, setZoom] = useState(10.5);
+  const [mapReady, setMapReady] = useState(false);
   const [selectedFilter, setSelectedFilter] = useState<MapFilterId>('naha');
   const [isSatellite, setIsSatellite] = useState(false);
   const [is3D, setIs3D] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
+  const [isTouring, setIsTouring] = useState(false);
   const [selectedPlace, setSelectedPlace] = useState<Place>(PLACES[0]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   useEffect(() => {
-    const updateSize = () => {
-      if (mapBoxRef.current) {
-        const rect = mapBoxRef.current.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0) {
-          setBoxSize({ width: rect.width, height: rect.height });
-        }
-      }
-    };
-    updateSize();
-    window.addEventListener('resize', updateSize);
-    return () => window.removeEventListener('resize', updateSize);
-  }, []);
-
-  // 使用非 passive wheel 監聽器以安全阻止頁面滾動並流暢縮放地圖
-  useEffect(() => {
-    const el = mapBoxRef.current;
-    if (!el) return;
-    const onWheelNative = (e: WheelEvent) => {
-      e.preventDefault();
-      const delta = e.deltaY < 0 ? 0.45 : -0.45;
-      setZoom((z) => Math.max(9.5, Math.min(16, z + delta)));
-    };
-    el.addEventListener('wheel', onWheelNative, { passive: false });
-    return () => el.removeEventListener('wheel', onWheelNative);
-  }, []);
+    is3DRef.current = is3D;
+  }, [is3D]);
 
   const visiblePlaces = useMemo(() => {
     if (selectedFilter === 'all') return PLACES;
@@ -1352,142 +1260,350 @@ function OkinawaMapTab() {
     return [];
   }, [selectedFilter]);
 
-  const fitCurrentBounds = useCallback(
-    (filterVal: MapFilterId = selectedFilter) => {
-      const targetPlaces =
-        filterVal === 'all'
-          ? PLACES
-          : filterVal === 'naha'
-          ? PLACES.filter((p) => p.id !== 'kerama-whales')
-          : filterVal === 'food'
-          ? PLACES.filter((p) => p.isHotel || p.category === '美食')
-          : filterVal === 'shop'
-          ? PLACES.filter((p) => p.isHotel || p.category === '超市' || p.category === '逛街')
-          : PLACES.filter((p) => p.dayNums.includes(filterVal));
+  const stopTour = useCallback(() => {
+    tourRunRef.current += 1;
+    setIsTouring(false);
+  }, []);
 
-      if (targetPlaces.length === 0) return;
+  const flyToPlace = useCallback((place: Place) => {
+    const m = mapRef.current;
+    if (!m) return;
+    m.flyTo({
+      center: place.coords,
+      zoom: place.id === 'kerama-whales' ? 11.4 : 15.2,
+      pitch: is3DRef.current ? 60 : 0,
+      bearing: is3DRef.current ? m.getBearing() : 0,
+      duration: 1400,
+      essential: true,
+    });
+  }, []);
 
-      let minLng = Infinity;
-      let maxLng = -Infinity;
-      let minLat = Infinity;
-      let maxLat = -Infinity;
-      targetPlaces.forEach((p) => {
-        const [lng, lat] = p.coords;
-        if (lng < minLng) minLng = lng;
-        if (lng > maxLng) maxLng = lng;
-        if (lat < minLat) minLat = lat;
-        if (lat > maxLat) maxLat = lat;
-      });
+  const fitPlacesBounds = useCallback(
+    (placesToFit: Place[], filterVal: MapFilterId = selectedFilter) => {
+      const m = mapRef.current;
+      if (!m || placesToFit.length === 0) return;
 
-      const targetLng = (minLng + maxLng) / 2;
-      const targetLat = (minLat + maxLat) / 2;
+      const bounds = new maplibregl.LngLatBounds();
+      placesToFit.forEach((p) => bounds.extend(p.coords));
 
-      const padW = Math.max(120, boxSize.width - 110);
-      const padH = Math.max(150, boxSize.height - 120);
-
-      let bestZoom = 14.2;
-      for (let z = 15.5; z >= 9.5; z -= 0.15) {
-        const spanX = Math.abs(lngToWorldX(maxLng, z) - lngToWorldX(minLng, z));
-        const spanY = Math.abs(latToWorldY(minLat, z) - latToWorldY(maxLat, z));
-        if (spanX <= padW && spanY <= padH) {
-          bestZoom = Math.min(z, filterVal === 'food' || filterVal === 'shop' ? 14.8 : 13.8);
-          break;
-        }
-      }
-
-      setCenter({ lng: targetLng, lat: targetLat });
-      setZoom(bestZoom);
-    },
-    [selectedFilter, boxSize.width, boxSize.height]
-  );
-
-  useEffect(() => {
-    fitCurrentBounds(selectedFilter);
-  }, [selectedFilter, fitCurrentBounds]);
-
-  const centerWorldX = lngToWorldX(center.lng, zoom);
-  const centerWorldY = latToWorldY(center.lat, zoom);
-
-  const projectPoint = useCallback(
-    ([lng, lat]: [number, number]) => ({
-      x: boxSize.width / 2 + (lngToWorldX(lng, zoom) - centerWorldX),
-      y: boxSize.height / 2 + (latToWorldY(lat, zoom) - centerWorldY),
-    }),
-    [boxSize.width, boxSize.height, zoom, centerWorldX, centerWorldY]
-  );
-
-  const tiles = useMemo(() => {
-    const tileZ = Math.max(9, Math.min(16, Math.floor(zoom)));
-    const scale = Math.pow(2, zoom - tileZ);
-    const displayTileSize = TILE_SIZE * scale;
-    const maxTileIdx = Math.pow(2, tileZ) - 1;
-
-    const buffer = is3D ? 2 : 1;
-    const minWorldX = centerWorldX - boxSize.width / 2;
-    const maxWorldX = centerWorldX + boxSize.width / 2;
-    const minWorldY = centerWorldY - boxSize.height / 2;
-    const maxWorldY = centerWorldY + boxSize.height / 2;
-
-    const minTx = Math.max(0, Math.floor(minWorldX / displayTileSize) - buffer);
-    const maxTx = Math.min(maxTileIdx, Math.floor(maxWorldX / displayTileSize) + buffer);
-    const minTy = Math.max(0, Math.floor(minWorldY / displayTileSize) - buffer);
-    const maxTy = Math.min(maxTileIdx, Math.floor(maxWorldY / displayTileSize) + buffer);
-
-    const list: (MapTileImageProps & { key: string })[] = [];
-    for (let tx = minTx; tx <= maxTx; tx++) {
-      for (let ty = minTy; ty <= maxTy; ty++) {
-        const streetUrl = `https://tile.openstreetmap.jp/styles/osm-bright-ja/${tileZ}/${tx}/${ty}.png`;
-        const streetFallback = `https://cyberjapandata.gsi.go.jp/xyz/pale/${tileZ}/${tx}/${ty}.png`;
-        const satUrl = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${tileZ}/${ty}/${tx}`;
-        const satFallback = `https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/${tileZ}/${tx}/${ty}.jpg`;
-
-        list.push({
-          key: `${isSatellite ? 'sat' : 'str'}-${tileZ}-${tx}-${ty}`,
-          url: isSatellite ? satUrl : streetUrl,
-          fallbackUrl: isSatellite ? satFallback : streetFallback,
-          left: boxSize.width / 2 + (tx * displayTileSize - centerWorldX),
-          top: boxSize.height / 2 + (ty * displayTileSize - centerWorldY),
-          size: displayTileSize,
+      if (!bounds.isEmpty()) {
+        const maxZoom =
+          filterVal === 'food' || filterVal === 'shop'
+            ? 15.2
+            : filterVal === 'naha'
+            ? 14.2
+            : 12.6;
+        m.fitBounds(bounds, {
+          padding: { top: 64, bottom: 56, left: 56, right: 64 },
+          maxZoom,
+          duration: 700,
         });
       }
-    }
-    return list;
-  }, [zoom, centerWorldX, centerWorldY, boxSize.width, boxSize.height, isSatellite, is3D]);
+    },
+    [selectedFilter]
+  );
 
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement | null)?.closest('button')) return;
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-    setIsDragging(true);
-    dragStateRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      startWorldX: centerWorldX,
-      startWorldY: centerWorldY,
-      zoomAtStart: zoom,
+  // 初始化 MapLibre GL JS 地圖與免金鑰圖層（向量底圖 + Esri 衛星 + AWS DEM 3D 地形與山影 + 路線圖層）
+  useEffect(() => {
+    const container = mapContainerRef.current;
+    if (!container) return;
+
+    maplibregl.setWorkerUrl(new URL(maplibreWorkerUrl, window.location.href).href);
+
+    const m = new maplibregl.Map({
+      container,
+      style: OPENFREEMAP_STYLE,
+      center: [127.6795, 26.2135],
+      zoom: 13.4,
+      pitch: 0,
+      bearing: 0,
+      maxPitch: 70,
+      attributionControl: false,
+    });
+
+    m.addControl(
+      new maplibregl.AttributionControl({
+        compact: true,
+        customAttribution: 'OpenFreeMap · Esri · AWS Terrain',
+      }),
+      'bottom-right'
+    );
+    m.addControl(
+      new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }),
+      'top-right'
+    );
+    m.addControl(
+      new maplibregl.GeolocateControl({
+        trackUserLocation: true,
+        positionOptions: { enableHighAccuracy: true },
+      }),
+      'top-right'
+    );
+
+    m.on('load', () => {
+      const firstSymbol = m
+        .getStyle()
+        .layers?.find((l: { type: string; id: string }) => l.type === 'symbol')?.id;
+
+      // 衛星影像圖層（置於地名文字下方，確保路名與地標依然清晰）
+      m.addSource('sat', {
+        type: 'raster',
+        tiles: [ESRI_SATELLITE_TILES],
+        tileSize: 256,
+        maxzoom: 18,
+      });
+      m.addLayer(
+        {
+          id: 'sat',
+          type: 'raster',
+          source: 'sat',
+          layout: { visibility: 'none' },
+        },
+        firstSymbol
+      );
+
+      // 依 MapLibre 建議將山影與 3D 地形使用獨立 raster-dem 來源
+      const demSource = {
+        type: 'raster-dem' as const,
+        tiles: [AWS_TERRARIUM_DEM],
+        tileSize: 256,
+        maxzoom: 14,
+        encoding: 'terrarium' as const,
+      };
+      m.addSource('dem-shade', demSource);
+      m.addSource('dem-3d', demSource);
+      m.addLayer(
+        {
+          id: 'hillshade',
+          type: 'hillshade',
+          source: 'dem-shade',
+          paint: {
+            'hillshade-exaggeration': 0.35,
+            'hillshade-shadow-color': '#2d3b36',
+          },
+        },
+        firstSymbol
+      );
+
+      // 每日行程路線 GeoJSON 圖層（陸地實線 + 海上賞鯨虛線）
+      m.addSource('routes', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+      m.addLayer({
+        id: 'routes-casing',
+        type: 'line',
+        source: 'routes',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': '#ffffff',
+          'line-width': 7.5,
+          'line-opacity': 0.9,
+        },
+      });
+      m.addLayer({
+        id: 'routes-land',
+        type: 'line',
+        source: 'routes',
+        filter: ['==', ['get', 'sea'], 0],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': ['get', 'color'],
+          'line-width': 4.5,
+          'line-opacity': 0.95,
+        },
+      });
+      m.addLayer({
+        id: 'routes-sea',
+        type: 'line',
+        source: 'routes',
+        filter: ['==', ['get', 'sea'], 1],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': ['get', 'color'],
+          'line-width': 4.5,
+          'line-dasharray': [2, 1.8],
+          'line-opacity': 0.95,
+        },
+      });
+
+      // 預設折疊右下角版權資訊列為 (i) 按鈕
+      const attrib = container.querySelector('.maplibregl-ctrl-attrib');
+      attrib?.classList.remove('maplibregl-compact-show');
+      attrib?.removeAttribute('open');
+
+      setMapReady(true);
+    });
+
+    // 手動拖曳地圖時自動停止飛行導覽
+    m.on('dragstart', () => {
+      tourRunRef.current += 1;
+      setIsTouring(false);
+    });
+
+    mapRef.current = m;
+    const resizeObserver = new ResizeObserver(() => m.resize());
+    resizeObserver.observe(container);
+
+    return () => {
+      tourRunRef.current += 1;
+      resizeObserver.disconnect();
+      markersRef.current.forEach((mk) => mk.remove());
+      markersRef.current = [];
+      m.remove();
+      mapRef.current = null;
+      setMapReady(false);
     };
-  };
+  }, []);
 
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    const drag = dragStateRef.current;
-    if (!drag) return;
-    const dx = e.clientX - drag.startX;
-    const dy = e.clientY - drag.startY;
-    const nextWorldX = drag.startWorldX - dx;
-    const nextWorldY = drag.startWorldY - dy;
-    const nextLng = Math.max(
-      127.0,
-      Math.min(128.2, worldXToLng(nextWorldX, drag.zoomAtStart))
-    );
-    const nextLat = Math.max(
-      25.9,
-      Math.min(26.7, worldYToLat(nextWorldY, drag.zoomAtStart))
-    );
-    setCenter({ lng: nextLng, lat: nextLat });
-  };
+  // 更新 GeoJSON 路線資料
+  useEffect(() => {
+    const m = mapRef.current;
+    if (!mapReady || !m) return;
+    const src = m.getSource('routes') as GeoJSONSource | undefined;
+    if (!src) return;
+    src.setData({
+      type: 'FeatureCollection',
+      features: visibleRoutes.map((route) => ({
+        type: 'Feature',
+        properties: {
+          color: route.color,
+          sea: route.day === 2 || route.day === 3 ? 1 : 0,
+        },
+        geometry: {
+          type: 'LineString',
+          coordinates: route.coords,
+        },
+      })),
+    });
+  }, [mapReady, visibleRoutes]);
 
-  const handlePointerUp = () => {
-    dragStateRef.current = null;
-    setIsDragging(false);
+  // 切換衛星影像
+  useEffect(() => {
+    const m = mapRef.current;
+    if (!mapReady || !m || !m.getLayer('sat')) return;
+    m.setLayoutProperty('sat', 'visibility', isSatellite ? 'visible' : 'none');
+  }, [mapReady, isSatellite]);
+
+  // 切換真實 3D 高程地形與 60° 俯視角
+  useEffect(() => {
+    const m = mapRef.current;
+    if (!mapReady || !m) return;
+    m.setTerrain(is3D ? { source: 'dem-3d', exaggeration: 1.5 } : null);
+    if (lastTerrainRef.current !== is3D) {
+      m.easeTo({ pitch: is3D ? 60 : 0, duration: 800 });
+    }
+    lastTerrainRef.current = is3D;
+  }, [mapReady, is3D]);
+
+  // 依篩選條件更新地圖標記
+  useEffect(() => {
+    const m = mapRef.current;
+    if (!mapReady || !m) return;
+
+    markersRef.current.forEach((mk) => mk.remove());
+    markersRef.current = [];
+
+    visiblePlaces.forEach((place) => {
+      const isSelected = selectedPlace?.id === place.id;
+      const el = document.createElement('button');
+      el.type = 'button';
+      el.setAttribute('aria-label', place.zh);
+      el.style.cursor = 'pointer';
+      el.style.border = 'none';
+      el.style.background = 'transparent';
+      el.style.padding = '0';
+
+      if (place.isHotel) {
+        const badge = document.createElement('span');
+        badge.textContent = `🛏️ ${place.hotelBadge || '飯店'}`;
+        badge.style.cssText = [
+          'display:inline-flex',
+          'align-items:center',
+          'gap:4px',
+          'border-radius:999px',
+          'background:#ffffff',
+          'padding:4px 10px',
+          'font-size:13px',
+          'font-weight:800',
+          'color:#0c4a6e',
+          'white-space:nowrap',
+          `border:2.5px solid ${isSelected ? '#c2410c' : '#0c4a6e'}`,
+          `box-shadow:${isSelected ? '0 0 0 4px rgba(194,65,12,0.28), 0 4px 12px rgba(0,0,0,0.22)' : '0 2px 8px rgba(0,0,0,0.2)'}`,
+          `transform:scale(${isSelected ? 1.1 : 1})`,
+          'transition:transform 160ms ease',
+        ].join(';');
+        el.appendChild(badge);
+      } else {
+        const pin = document.createElement('span');
+        pin.textContent = getPinLabel(place);
+        const sizePx = isSelected ? 38 : 32;
+        pin.style.cssText = [
+          'display:grid',
+          'place-items:center',
+          `width:${sizePx}px`,
+          `height:${sizePx}px`,
+          'border-radius:999px',
+          `background:${getPinColor(place)}`,
+          'color:#ffffff',
+          'border:2.5px solid #ffffff',
+          `font-size:${isSelected ? 16 : 14}px`,
+          `box-shadow:${isSelected ? '0 0 0 4px rgba(12,74,110,0.35), 0 4px 12px rgba(0,0,0,0.26)' : '0 2px 6px rgba(0,0,0,0.25)'}`,
+          'transition:transform 160ms ease',
+        ].join(';');
+        el.appendChild(pin);
+      }
+
+      el.onclick = (e) => {
+        e.stopPropagation();
+        stopTour();
+        setSelectedPlace(place);
+        flyToPlace(place);
+      };
+
+      const marker = new maplibregl.Marker({ element: el })
+        .setLngLat(place.coords)
+        .addTo(m);
+      if (isSelected) {
+        marker.getElement().style.zIndex = '5';
+      }
+      markersRef.current.push(marker);
+    });
+  }, [mapReady, visiblePlaces, selectedPlace, stopTour, flyToPlace]);
+
+  // 切換篩選類別時自動縮放至該組地點視野
+  useEffect(() => {
+    if (!mapReady) return;
+    stopTour();
+    fitPlacesBounds(visiblePlaces, selectedFilter);
+    if (
+      visiblePlaces.length > 0 &&
+      !visiblePlaces.some((p) => p.id === selectedPlace?.id)
+    ) {
+      setSelectedPlace(visiblePlaces[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapReady, selectedFilter]);
+
+  const handleToggleTour = async () => {
+    if (isTouring) {
+      stopTour();
+      return;
+    }
+    if (visiblePlaces.length === 0) return;
+
+    const runId = ++tourRunRef.current;
+    setIsTouring(true);
+    for (let i = 0; i < visiblePlaces.length; i++) {
+      if (tourRunRef.current !== runId) return;
+      const target = visiblePlaces[i];
+      setSelectedPlace(target);
+      flyToPlace(target);
+      await new Promise((r) => setTimeout(r, 3800));
+    }
+    if (tourRunRef.current === runId) {
+      setIsTouring(false);
+    }
   };
 
   const handleCopyName = (id: string, text: string) => {
@@ -1503,9 +1619,17 @@ function OkinawaMapTab() {
   };
 
   const focusPlaceOnMap = (place: Place) => {
+    stopTour();
     setSelectedPlace(place);
-    setCenter({ lng: place.coords[0], lat: place.coords[1] });
-    setZoom((z) => Math.max(z, place.id === 'kerama-whales' ? 11.2 : 14.5));
+    flyToPlace(place);
+  };
+
+  const currentIdx = visiblePlaces.findIndex((p) => p.id === selectedPlace?.id);
+  const handleStepPlace = (delta: number) => {
+    if (visiblePlaces.length === 0) return;
+    const baseIdx = currentIdx >= 0 ? currentIdx : 0;
+    const nextIdx = Math.max(0, Math.min(visiblePlaces.length - 1, baseIdx + delta));
+    focusPlaceOnMap(visiblePlaces[nextIdx]);
   };
 
   const mapFilters: { id: MapFilterId; label: string }[] = [
@@ -1519,31 +1643,6 @@ function OkinawaMapTab() {
     { id: 4, label: '第 4 天' },
   ];
 
-  const toSvgPoints = (coords: [number, number][]) =>
-    coords
-      .map((c) => {
-        const p = projectPoint(c);
-        return `${p.x.toFixed(1)},${p.y.toFixed(1)}`;
-      })
-      .join(' ');
-
-  const getPinColor = (place: Place) => {
-    if (place.category === '追鯨') return '#0c4a6e';
-    if (place.category === '美食') return '#c2410c';
-    if (place.category === '超市' || place.category === '逛街') return '#0f766e';
-    if (place.category === '碼頭') return '#0369a1';
-    return '#475569';
-  };
-
-  const getPinLabel = (place: Place) => {
-    if (place.category === '追鯨') return '🐋';
-    if (place.category === '美食') return '🍽️';
-    if (place.category === '超市') return '🛒';
-    if (place.category === '碼頭') return '⚓';
-    if (place.category === '交通') return '✈️';
-    return '📍';
-  };
-
   return (
     <div className="space-y-3.5">
       {/* 頂部篩選膠囊 */}
@@ -1554,9 +1653,7 @@ function OkinawaMapTab() {
             <button
               key={String(f.id)}
               type="button"
-              onClick={() => {
-                setSelectedFilter(f.id);
-              }}
+              onClick={() => setSelectedFilter(f.id)}
               className={`min-h-10 shrink-0 rounded-full border px-4 text-[14px] font-bold transition active:scale-95 ${
                 active
                   ? 'border-[#0c4a6e] bg-[#0c4a6e] text-white shadow-sm'
@@ -1569,162 +1666,17 @@ function OkinawaMapTab() {
         })}
       </div>
 
-      {/* 互動地圖主容器 */}
-      <div
-        ref={mapBoxRef}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
-        className={`relative h-[58vh] min-h-[410px] w-full touch-none overflow-hidden rounded-3xl border border-[#e7e2d8] shadow-[0_6px_20px_rgba(12,74,110,0.12)] select-none ${
-          isDragging ? 'cursor-grabbing' : 'cursor-grab'
-        }`}
-        style={{
-          backgroundColor: isSatellite ? '#0c2d48' : '#a8ccf0',
-        }}
-      >
-        <div
-          className="absolute inset-0 transition-transform duration-500 ease-out"
-          style={{
-            transform: is3D
-              ? 'perspective(850px) rotateX(40deg) scale(1.18) translateY(-18px)'
-              : 'none',
-            transformOrigin: '50% 60%',
-          }}
-        >
-          {/* Layer 1: 離線向量底圖 */}
-          <svg
-            width={boxSize.width}
-            height={boxSize.height}
-            className="pointer-events-none absolute inset-0"
-          >
-            <polygon
-              points={toSvgPoints(OKINAWA_SOUTH_COASTLINE)}
-              fill={isSatellite ? '#25523b' : '#edf2e4'}
-              stroke={isSatellite ? '#4b7b5f' : '#c7d6be'}
-              strokeWidth="2"
-              strokeLinejoin="round"
-            />
-            <polygon
-              points={toSvgPoints(KERAMA_TOKASHIKI_COASTLINE)}
-              fill={isSatellite ? '#25523b' : '#edf2e4'}
-              stroke={isSatellite ? '#4b7b5f' : '#c7d6be'}
-              strokeWidth="2"
-              strokeLinejoin="round"
-            />
-            <polygon
-              points={toSvgPoints(KERAMA_ZAMAMI_COASTLINE)}
-              fill={isSatellite ? '#25523b' : '#edf2e4'}
-              stroke={isSatellite ? '#4b7b5f' : '#c7d6be'}
-              strokeWidth="2"
-              strokeLinejoin="round"
-            />
-          </svg>
+      {/* MapLibre GL JS 向量互動地圖主容器 */}
+      <div className="relative isolate h-[58vh] min-h-[410px] w-full overflow-hidden rounded-3xl border border-[#e7e2d8] bg-[#cfe3f4] shadow-[0_6px_20px_rgba(12,74,110,0.12)]">
+        {/* 使用 inline absolute 避免 MapLibre CSS 覆蓋容器高度 */}
+        <div ref={mapContainerRef} style={{ position: 'absolute', inset: 0 }} />
 
-          {/* Layer 2: 即時線上圖磚 */}
-          <div className="pointer-events-none absolute inset-0 overflow-hidden">
-            {tiles.map((t) => (
-              <MapTileImage
-                key={t.key}
-                url={t.url}
-                fallbackUrl={t.fallbackUrl}
-                left={t.left}
-                top={t.top}
-                size={t.size}
-              />
-            ))}
-          </div>
-
-          {/* Layer 3: 每日路線折線 */}
-          <svg
-            width={boxSize.width}
-            height={boxSize.height}
-            className="pointer-events-none absolute inset-0 z-10"
-          >
-            {visibleRoutes.map((route) => {
-              const pts = toSvgPoints(route.coords);
-              return (
-                <g key={route.day}>
-                  <polyline
-                    points={pts}
-                    fill="none"
-                    stroke="#ffffff"
-                    strokeWidth="7"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    opacity="0.9"
-                  />
-                  <polyline
-                    points={pts}
-                    fill="none"
-                    stroke={route.color}
-                    strokeWidth="4"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeDasharray={route.day === 2 || route.day === 3 ? '8 6' : undefined}
-                    opacity="0.95"
-                  />
-                </g>
-              );
-            })}
-          </svg>
-
-          {/* Layer 4: 地點標記 */}
-          <div className="pointer-events-none absolute inset-0 z-20">
-            {visiblePlaces.map((place) => {
-              const pos = projectPoint(place.coords);
-              const isSelected = selectedPlace?.id === place.id;
-              return (
-                <button
-                  key={place.id}
-                  type="button"
-                  aria-label={place.zh}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    focusPlaceOnMap(place);
-                  }}
-                  style={{
-                    position: 'absolute',
-                    left: `${pos.x}px`,
-                    top: `${pos.y}px`,
-                    transform: `translate(-50%, -50%) scale(${isSelected ? 1.15 : 1})`,
-                  }}
-                  className="pointer-events-auto transition-transform duration-150 focus:outline-none"
-                >
-                  {place.isHotel ? (
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-full border-[2.5px] bg-white px-2.5 py-1 text-[13px] font-extrabold text-[#0c4a6e] shadow-md whitespace-nowrap ${
-                        isSelected
-                          ? 'border-[#c2410c] ring-2 ring-[#c2410c]/30'
-                          : 'border-[#0c4a6e]'
-                      }`}
-                    >
-                      <span className="leading-none">🛏️</span>
-                      <span>{place.hotelBadge}</span>
-                    </span>
-                  ) : (
-                    <span
-                      className={`grid place-items-center rounded-full border-[2.5px] border-white text-white shadow-md ${
-                        isSelected
-                          ? 'h-9 w-9 text-[15px] ring-2 ring-[#0c4a6e]/40'
-                          : 'h-7 w-7 text-[13px]'
-                      }`}
-                      style={{ backgroundColor: getPinColor(place) }}
-                    >
-                      {getPinLabel(place)}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* 左上角控制：衛星 + 3D */}
-        <div className="absolute top-3 left-3 z-30 flex flex-col gap-2">
+        {/* 左上角控制：衛星 + 真實 3D 地形 + 飛行導覽 + 回到全覽 */}
+        <div className="absolute top-3 left-3 z-10 flex flex-col gap-2">
           <button
             type="button"
             onClick={() => setIsSatellite((v) => !v)}
+            aria-pressed={isSatellite}
             className={`flex min-h-10 items-center gap-1.5 rounded-full px-3.5 text-[14px] font-bold shadow-md transition active:scale-95 ${
               isSatellite
                 ? 'bg-[#0c4a6e] text-white'
@@ -1738,6 +1690,7 @@ function OkinawaMapTab() {
           <button
             type="button"
             onClick={() => setIs3D((v) => !v)}
+            aria-pressed={is3D}
             className={`flex min-h-10 items-center gap-1.5 rounded-full px-3.5 text-[14px] font-bold shadow-md transition active:scale-95 ${
               is3D
                 ? 'bg-[#0c4a6e] text-white'
@@ -1747,48 +1700,40 @@ function OkinawaMapTab() {
             <Mountain className="h-4 w-4" />
             <span>3D</span>
           </button>
-        </div>
-
-        {/* 右上角控制：縮放 + 重置 */}
-        <div className="absolute top-3 right-3 z-30 flex flex-col gap-2">
-          <div className="flex flex-col overflow-hidden rounded-2xl bg-white/95 shadow-md backdrop-blur">
-            <button
-              type="button"
-              aria-label="放大"
-              onClick={() => setZoom((z) => Math.min(16, z + 0.75))}
-              className="grid h-10 w-10 place-items-center border-b border-[#ece7dd] text-[#0f293a] active:bg-[#f4f0e8]"
-            >
-              <Plus className="h-5 w-5" />
-            </button>
-            <button
-              type="button"
-              aria-label="縮小"
-              onClick={() => setZoom((z) => Math.max(9.5, z - 0.75))}
-              className="grid h-10 w-10 place-items-center border-b border-[#ece7dd] text-[#0f293a] active:bg-[#f4f0e8]"
-            >
-              <Minus className="h-5 w-5" />
-            </button>
-            <button
-              type="button"
-              aria-label="重置視角"
-              onClick={() => setIs3D(false)}
-              className="grid h-10 w-10 place-items-center text-[#0f293a] active:bg-[#f4f0e8]"
-            >
-              <Compass className="h-5 w-5 text-[#c2410c]" />
-            </button>
-          </div>
 
           <button
             type="button"
-            aria-label="回到全覽視野"
-            onClick={() => fitCurrentBounds(selectedFilter)}
-            className="grid h-10 w-10 place-items-center rounded-2xl bg-white/95 text-[#0f293a] shadow-md backdrop-blur active:scale-95"
+            onClick={handleToggleTour}
+            aria-pressed={isTouring}
+            className={`flex min-h-10 items-center gap-1.5 rounded-full px-3.5 text-[14px] font-bold shadow-md transition active:scale-95 ${
+              isTouring
+                ? 'bg-[#c2410c] text-white'
+                : 'bg-white/95 text-[#0f293a] backdrop-blur'
+            }`}
           >
-            <Crosshair className="h-5 w-5" />
+            {isTouring ? (
+              <Pause className="h-4 w-4" />
+            ) : (
+              <Play className="h-4 w-4" />
+            )}
+            <span>{isTouring ? '停止導覽' : '飛行導覽'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              stopTour();
+              fitPlacesBounds(visiblePlaces, selectedFilter);
+            }}
+            aria-label="回到全覽視野"
+            className="flex min-h-10 items-center gap-1.5 rounded-full bg-white/95 px-3.5 text-[13px] font-bold text-[#0f293a] shadow-md backdrop-blur transition active:scale-95"
+          >
+            <Crosshair className="h-4 w-4" />
+            <span>全覽</span>
           </button>
         </div>
 
-        <div className="pointer-events-none absolute bottom-3 left-3 z-30 rounded-full bg-white/90 px-3 py-1 text-[11px] font-bold text-[#0f293a] shadow-sm backdrop-blur">
+        <div className="pointer-events-none absolute bottom-3 left-3 z-10 rounded-full bg-white/90 px-3 py-1 text-[11px] font-bold text-[#0f293a] shadow-sm backdrop-blur">
           🛏️ 飯店 · 🍽️ 美食 · 🛒 超市 · 🐋 追鯨
         </div>
       </div>
@@ -1825,7 +1770,16 @@ function OkinawaMapTab() {
             {selectedPlace.desc}
           </p>
 
-          <div className="mt-3.5 flex gap-2">
+          <div className="mt-3.5 flex items-center gap-2">
+            <button
+              type="button"
+              aria-label="上一個地點"
+              disabled={currentIdx <= 0}
+              onClick={() => handleStepPlace(-1)}
+              className="grid h-11 w-10 shrink-0 place-items-center rounded-2xl border border-[#e7e2d8] bg-[#faf7f2] text-[#0f293a] transition active:scale-95 disabled:opacity-35"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
             <a
               href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
                 selectedPlace.query
@@ -1840,7 +1794,7 @@ function OkinawaMapTab() {
             <button
               type="button"
               onClick={() => handleCopyName(selectedPlace.id, selectedPlace.en)}
-              className="flex min-h-11 items-center justify-center gap-1 rounded-2xl border border-[#e7e2d8] bg-[#faf7f2] px-3.5 text-[13px] font-bold text-[#0f293a] transition active:scale-95"
+              className="flex min-h-11 shrink-0 items-center justify-center gap-1 rounded-2xl border border-[#e7e2d8] bg-[#faf7f2] px-3 text-[13px] font-bold text-[#0f293a] transition active:scale-95"
             >
               {copiedId === selectedPlace.id ? (
                 <>
@@ -1850,9 +1804,18 @@ function OkinawaMapTab() {
               ) : (
                 <>
                   <Copy className="h-4 w-4" />
-                  <span>複製名稱</span>
+                  <span>複製</span>
                 </>
               )}
+            </button>
+            <button
+              type="button"
+              aria-label="下一個地點"
+              disabled={currentIdx < 0 || currentIdx >= visiblePlaces.length - 1}
+              onClick={() => handleStepPlace(1)}
+              className="grid h-11 w-10 shrink-0 place-items-center rounded-2xl border border-[#e7e2d8] bg-[#faf7f2] text-[#0f293a] transition active:scale-95 disabled:opacity-35"
+            >
+              <ChevronRight className="h-5 w-5" />
             </button>
           </div>
         </article>

@@ -14,6 +14,14 @@ import {
   onSnapshot,
   collection,
 } from 'firebase/firestore';
+import * as maplibregl from 'maplibre-gl';
+import type {
+  GeoJSONSource,
+  Map as MLMap,
+  Marker as MLMarker,
+} from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import {
   Home,
   CalendarDays,
@@ -38,7 +46,6 @@ import {
   ShieldAlert,
   Satellite,
   Mountain,
-  Compass,
   Crosshair,
   Navigation,
   RefreshCw,
@@ -54,11 +61,17 @@ import {
   Gamepad2,
   Trophy,
   Camera,
+  Play,
+  Pause,
 } from 'lucide-react';
 
 declare const __firebase_config: string | undefined;
 declare const __app_id: string | undefined;
 declare const __initial_auth_token: string | undefined;
+
+// ============================================================================
+// 型別定義
+// ============================================================================
 
 interface DayMeta {
   isoDate: string;
@@ -459,6 +472,7 @@ function buildTripDays(group: TripGroup): TripDay[] {
   }));
 }
 
+// 沖繩那霸精選餐廳
 const OKINAWA_RESTAURANTS = [
   {
     id: 'jacks-steak',
@@ -542,6 +556,7 @@ const OKINAWA_RESTAURANTS = [
   },
 ];
 
+// 沖繩那霸飯店周邊超市・藥妝・採買
 const OKINAWA_MARKETS = [
   {
     id: 'ryubo-b1',
@@ -605,6 +620,7 @@ const OKINAWA_MARKETS = [
   },
 ];
 
+// 地圖標記點（涵蓋住宿、機場、出海港口、賞鯨海域、那霸美食與超市）
 const PLACES: Place[] = [
   {
     id: 'almont',
@@ -833,6 +849,7 @@ const CHECKLIST_CATEGORIES = [
 ];
 
 const DEFAULT_CHECKLIST: ChecklistItem[] = [
+  // 潛水與追鯨裝備
   { id: 'dive-1', cat: '潛水與追鯨裝備', text: '面鏡、呼吸管（下水追鯨必備）' },
   { id: 'dive-2', cat: '潛水與追鯨裝備', text: '防寒衣（3 月水溫 21–22°C，建議 5mm 或加頭套背心）' },
   { id: 'dive-3', cat: '潛水與追鯨裝備', text: '一般蛙鞋（本行程僅限一般蛙鞋，不可穿長蛙鞋）、襪套、配重帶' },
@@ -840,15 +857,19 @@ const DEFAULT_CHECKLIST: ChecklistItem[] = [
   { id: 'dive-5', cat: '潛水與追鯨裝備', text: '泳裝、一套上岸換穿的乾衣物、防水包（裝手機與乾衣物）' },
   { id: 'dive-6', cat: '潛水與追鯨裝備', text: '保溫瓶（建議附杯子款式，船上搖晃倒杯喝較安全防燙）' },
   { id: 'dive-7', cat: '潛水與追鯨裝備', text: '暈船藥（外海追鯨浪大必備，出海前先吃）' },
+  // 證件與錢財
   { id: 'doc-1', cat: '證件與錢財', text: '護照正本（免簽 90 天，確認效期）＋ 機票資訊' },
   { id: 'doc-2', cat: '證件與錢財', text: 'Visit Japan Web 登錄完成並截圖 QR Code' },
   { id: 'doc-3', cat: '證件與錢財', text: '日幣現金、台幣現金、海外回饋信用卡（確認已開通）' },
+  // 衣物與防曬
   { id: 'cloth-1', cat: '衣物與防曬', text: '外出衣物、內衣褲、睡衣、襪子、防曬衣物' },
   { id: 'cloth-2', cat: '衣物與防曬', text: '休閒鞋、拖鞋、飾品、遮陽帽、眼鏡／墨鏡' },
   { id: 'cloth-3', cat: '衣物與防曬', text: '海洋友善防曬乳、護手霜、護唇膏' },
+  // 盥洗與化妝
   { id: 'bath-1', cat: '盥洗與化妝', text: '牙刷牙膏、洗面乳、棉花棒、衛生紙／濕紙巾' },
   { id: 'bath-2', cat: '盥洗與化妝', text: '保養品、化妝品、卸妝用品、面膜、刮鬍／女性衛生用品' },
   { id: 'bath-3', cat: '盥洗與化妝', text: '隱形眼鏡、藥水、眼鏡盒' },
+  // 3C 與雜物
   { id: 'tech-1', cat: '3C 與雜物', text: '手機、充電器、行動電源（限手提上機）、日本 eSIM / 網卡' },
   { id: 'tech-2', cat: '3C 與雜物', text: '運動相機／水下相機（充飽電、清記憶卡、檢查防水殼）' },
   { id: 'tech-3', cat: '3C 與雜物', text: '背包／登機箱、錢包、水瓶、收納袋、髒衣袋' },
@@ -861,6 +882,10 @@ const RENTAL_ITEMS = [
   { name: '頭套背心', price: '¥500' },
   { name: '蛙鞋（套腳蛙）', price: '¥500' },
 ];
+
+// ============================================================================
+// 2. 工具函式
+// ============================================================================
 
 function getLocalTodayStr(): string {
   const now = new Date();
@@ -923,6 +948,10 @@ function sanitizeDecimalInput(val: string): string {
   if (parts.length <= 1) return stripped;
   return `${parts[0]}.${parts.slice(1).join('')}`;
 }
+
+// ============================================================================
+// 3. 潛伴散步互動舞台 (CrewPlayground)
+// ============================================================================
 
 interface CrewPlaygroundProps {
   activeMemberId: string;
@@ -1061,6 +1090,7 @@ function CrewPlayground({
         </button>
       )}
 
+      {/* 互動對話氣泡 */}
       {speech && (
         <div
           key={`${speech.id}-${speech.text}`}
@@ -1162,148 +1192,53 @@ function CrewPlayground({
   );
 }
 
-const TILE_SIZE = 256;
+// ============================================================================
+// 4. 沖繩那霸 & 慶良間互動地圖 (OkinawaMapTab — MapLibre GL JS + OpenFreeMap + 3D 地形)
+// ============================================================================
 
-function lngToWorldX(lng: number, zoom: number): number {
-  return ((lng + 180) / 360) * TILE_SIZE * Math.pow(2, zoom);
+// 免 API Key 的公開向量底圖、衛星影像與高程地形圖資（參考 Ireland-trip 地圖架構）
+const OPENFREEMAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
+const ESRI_SATELLITE_TILES =
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+const AWS_TERRARIUM_DEM =
+  'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
+
+function getPinColor(place: Place): string {
+  if (place.category === '追鯨') return '#0c4a6e';
+  if (place.category === '美食') return '#c2410c';
+  if (place.category === '超市' || place.category === '逛街') return '#0f766e';
+  if (place.category === '碼頭') return '#0369a1';
+  return '#475569';
 }
 
-function latToWorldY(lat: number, zoom: number): number {
-  const rad = (lat * Math.PI) / 180;
-  const mercN = Math.log(Math.tan(Math.PI / 4 + rad / 2));
-  return (0.5 - mercN / (2 * Math.PI)) * TILE_SIZE * Math.pow(2, zoom);
-}
-
-function worldXToLng(x: number, zoom: number): number {
-  return (x / (TILE_SIZE * Math.pow(2, zoom))) * 360 - 180;
-}
-
-function worldYToLat(y: number, zoom: number): number {
-  const n = Math.PI - (2 * Math.PI * y) / (TILE_SIZE * Math.pow(2, zoom));
-  return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
-}
-
-const OKINAWA_SOUTH_COASTLINE: [number, number][] = [
-  [127.64, 26.205],
-  [127.665, 26.225],
-  [127.695, 26.255],
-  [127.74, 26.32],
-  [127.83, 26.31],
-  [127.82, 26.23],
-  [127.83, 26.15],
-  [127.78, 26.1],
-  [127.67, 26.08],
-  [127.65, 26.14],
-];
-
-const KERAMA_TOKASHIKI_COASTLINE: [number, number][] = [
-  [127.345, 26.235],
-  [127.375, 26.225],
-  [127.37, 26.16],
-  [127.34, 26.165],
-];
-
-const KERAMA_ZAMAMI_COASTLINE: [number, number][] = [
-  [127.28, 26.24],
-  [127.32, 26.235],
-  [127.31, 26.215],
-  [127.275, 26.22],
-];
-
-interface MapTileImageProps {
-  url: string;
-  fallbackUrl: string | null;
-  left: number;
-  top: number;
-  size: number;
-}
-
-function MapTileImage({ url, fallbackUrl, left, top, size }: MapTileImageProps) {
-  const [src, setSrc] = useState(url);
-  const [loaded, setLoaded] = useState(false);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    setSrc(url);
-    setLoaded(false);
-    setFailed(false);
-  }, [url]);
-
-  if (failed) return null;
-
-  return (
-    <img
-      src={src}
-      alt=""
-      draggable={false}
-      onLoad={() => setLoaded(true)}
-      onError={() => {
-        if (fallbackUrl && src !== fallbackUrl) {
-          setSrc(fallbackUrl);
-        } else {
-          setFailed(true);
-        }
-      }}
-      style={{
-        position: 'absolute',
-        left: `${left}px`,
-        top: `${top}px`,
-        width: `${size + 0.6}px`,
-        height: `${size + 0.6}px`,
-        opacity: loaded ? 1 : 0,
-        transition: 'opacity 180ms ease-out',
-        pointerEvents: 'none',
-        userSelect: 'none',
-      }}
-    />
-  );
+function getPinLabel(place: Place): string {
+  if (place.category === '追鯨') return '🐋';
+  if (place.category === '美食') return '🍽️';
+  if (place.category === '超市') return '🛒';
+  if (place.category === '碼頭') return '⚓';
+  if (place.category === '交通') return '✈️';
+  return '📍';
 }
 
 function OkinawaMapTab() {
-  const mapBoxRef = useRef<HTMLDivElement | null>(null);
-  const dragStateRef = useRef<{
-    startX: number;
-    startY: number;
-    startWorldX: number;
-    startWorldY: number;
-    zoomAtStart: number;
-  } | null>(null);
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<MLMap | null>(null);
+  const markersRef = useRef<MLMarker[]>([]);
+  const tourRunRef = useRef(0);
+  const is3DRef = useRef(false);
+  const lastTerrainRef = useRef(false);
 
-  const [boxSize, setBoxSize] = useState({ width: 390, height: 440 });
-  const [center, setCenter] = useState({ lng: 127.58, lat: 26.21 });
-  const [zoom, setZoom] = useState(10.5);
+  const [mapReady, setMapReady] = useState(false);
   const [selectedFilter, setSelectedFilter] = useState<MapFilterId>('naha');
   const [isSatellite, setIsSatellite] = useState(false);
   const [is3D, setIs3D] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
+  const [isTouring, setIsTouring] = useState(false);
   const [selectedPlace, setSelectedPlace] = useState<Place>(PLACES[0]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   useEffect(() => {
-    const updateSize = () => {
-      if (mapBoxRef.current) {
-        const rect = mapBoxRef.current.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0) {
-          setBoxSize({ width: rect.width, height: rect.height });
-        }
-      }
-    };
-    updateSize();
-    window.addEventListener('resize', updateSize);
-    return () => window.removeEventListener('resize', updateSize);
-  }, []);
-
-  useEffect(() => {
-    const el = mapBoxRef.current;
-    if (!el) return;
-    const onWheelNative = (e: WheelEvent) => {
-      e.preventDefault();
-      const delta = e.deltaY < 0 ? 0.45 : -0.45;
-      setZoom((z) => Math.max(9.5, Math.min(16, z + delta)));
-    };
-    el.addEventListener('wheel', onWheelNative, { passive: false });
-    return () => el.removeEventListener('wheel', onWheelNative);
-  }, []);
+    is3DRef.current = is3D;
+  }, [is3D]);
 
   const visiblePlaces = useMemo(() => {
     if (selectedFilter === 'all') return PLACES;
@@ -1325,142 +1260,350 @@ function OkinawaMapTab() {
     return [];
   }, [selectedFilter]);
 
-  const fitCurrentBounds = useCallback(
-    (filterVal: MapFilterId = selectedFilter) => {
-      const targetPlaces =
-        filterVal === 'all'
-          ? PLACES
-          : filterVal === 'naha'
-          ? PLACES.filter((p) => p.id !== 'kerama-whales')
-          : filterVal === 'food'
-          ? PLACES.filter((p) => p.isHotel || p.category === '美食')
-          : filterVal === 'shop'
-          ? PLACES.filter((p) => p.isHotel || p.category === '超市' || p.category === '逛街')
-          : PLACES.filter((p) => p.dayNums.includes(filterVal));
+  const stopTour = useCallback(() => {
+    tourRunRef.current += 1;
+    setIsTouring(false);
+  }, []);
 
-      if (targetPlaces.length === 0) return;
+  const flyToPlace = useCallback((place: Place) => {
+    const m = mapRef.current;
+    if (!m) return;
+    m.flyTo({
+      center: place.coords,
+      zoom: place.id === 'kerama-whales' ? 11.4 : 15.2,
+      pitch: is3DRef.current ? 60 : 0,
+      bearing: is3DRef.current ? m.getBearing() : 0,
+      duration: 1400,
+      essential: true,
+    });
+  }, []);
 
-      let minLng = Infinity;
-      let maxLng = -Infinity;
-      let minLat = Infinity;
-      let maxLat = -Infinity;
-      targetPlaces.forEach((p) => {
-        const [lng, lat] = p.coords;
-        if (lng < minLng) minLng = lng;
-        if (lng > maxLng) maxLng = lng;
-        if (lat < minLat) minLat = lat;
-        if (lat > maxLat) maxLat = lat;
-      });
+  const fitPlacesBounds = useCallback(
+    (placesToFit: Place[], filterVal: MapFilterId = selectedFilter) => {
+      const m = mapRef.current;
+      if (!m || placesToFit.length === 0) return;
 
-      const targetLng = (minLng + maxLng) / 2;
-      const targetLat = (minLat + maxLat) / 2;
+      const bounds = new maplibregl.LngLatBounds();
+      placesToFit.forEach((p) => bounds.extend(p.coords));
 
-      const padW = Math.max(120, boxSize.width - 110);
-      const padH = Math.max(150, boxSize.height - 120);
-
-      let bestZoom = 14.2;
-      for (let z = 15.5; z >= 9.5; z -= 0.15) {
-        const spanX = Math.abs(lngToWorldX(maxLng, z) - lngToWorldX(minLng, z));
-        const spanY = Math.abs(latToWorldY(minLat, z) - latToWorldY(maxLat, z));
-        if (spanX <= padW && spanY <= padH) {
-          bestZoom = Math.min(z, filterVal === 'food' || filterVal === 'shop' ? 14.8 : 13.8);
-          break;
-        }
-      }
-
-      setCenter({ lng: targetLng, lat: targetLat });
-      setZoom(bestZoom);
-    },
-    [selectedFilter, boxSize.width, boxSize.height]
-  );
-
-  useEffect(() => {
-    fitCurrentBounds(selectedFilter);
-  }, [selectedFilter, fitCurrentBounds]);
-
-  const centerWorldX = lngToWorldX(center.lng, zoom);
-  const centerWorldY = latToWorldY(center.lat, zoom);
-
-  const projectPoint = useCallback(
-    ([lng, lat]: [number, number]) => ({
-      x: boxSize.width / 2 + (lngToWorldX(lng, zoom) - centerWorldX),
-      y: boxSize.height / 2 + (latToWorldY(lat, zoom) - centerWorldY),
-    }),
-    [boxSize.width, boxSize.height, zoom, centerWorldX, centerWorldY]
-  );
-
-  const tiles = useMemo(() => {
-    const tileZ = Math.max(9, Math.min(16, Math.floor(zoom)));
-    const scale = Math.pow(2, zoom - tileZ);
-    const displayTileSize = TILE_SIZE * scale;
-    const maxTileIdx = Math.pow(2, tileZ) - 1;
-
-    const buffer = is3D ? 2 : 1;
-    const minWorldX = centerWorldX - boxSize.width / 2;
-    const maxWorldX = centerWorldX + boxSize.width / 2;
-    const minWorldY = centerWorldY - boxSize.height / 2;
-    const maxWorldY = centerWorldY + boxSize.height / 2;
-
-    const minTx = Math.max(0, Math.floor(minWorldX / displayTileSize) - buffer);
-    const maxTx = Math.min(maxTileIdx, Math.floor(maxWorldX / displayTileSize) + buffer);
-    const minTy = Math.max(0, Math.floor(minWorldY / displayTileSize) - buffer);
-    const maxTy = Math.min(maxTileIdx, Math.floor(maxWorldY / displayTileSize) + buffer);
-
-    const list: (MapTileImageProps & { key: string })[] = [];
-    for (let tx = minTx; tx <= maxTx; tx++) {
-      for (let ty = minTy; ty <= maxTy; ty++) {
-        const streetUrl = `https://tile.openstreetmap.jp/styles/osm-bright-ja/${tileZ}/${tx}/${ty}.png`;
-        const streetFallback = `https://cyberjapandata.gsi.go.jp/xyz/pale/${tileZ}/${tx}/${ty}.png`;
-        const satUrl = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${tileZ}/${ty}/${tx}`;
-        const satFallback = `https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/${tileZ}/${tx}/${ty}.jpg`;
-
-        list.push({
-          key: `${isSatellite ? 'sat' : 'str'}-${tileZ}-${tx}-${ty}`,
-          url: isSatellite ? satUrl : streetUrl,
-          fallbackUrl: isSatellite ? satFallback : streetFallback,
-          left: boxSize.width / 2 + (tx * displayTileSize - centerWorldX),
-          top: boxSize.height / 2 + (ty * displayTileSize - centerWorldY),
-          size: displayTileSize,
+      if (!bounds.isEmpty()) {
+        const maxZoom =
+          filterVal === 'food' || filterVal === 'shop'
+            ? 15.2
+            : filterVal === 'naha'
+            ? 14.2
+            : 12.6;
+        m.fitBounds(bounds, {
+          padding: { top: 64, bottom: 56, left: 56, right: 64 },
+          maxZoom,
+          duration: 700,
         });
       }
-    }
-    return list;
-  }, [zoom, centerWorldX, centerWorldY, boxSize.width, boxSize.height, isSatellite, is3D]);
+    },
+    [selectedFilter]
+  );
 
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement | null)?.closest('button')) return;
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-    setIsDragging(true);
-    dragStateRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      startWorldX: centerWorldX,
-      startWorldY: centerWorldY,
-      zoomAtStart: zoom,
+  // 初始化 MapLibre GL JS 地圖與免金鑰圖層（向量底圖 + Esri 衛星 + AWS DEM 3D 地形與山影 + 路線圖層）
+  useEffect(() => {
+    const container = mapContainerRef.current;
+    if (!container) return;
+
+    maplibregl.setWorkerUrl(new URL(maplibreWorkerUrl, window.location.href).href);
+
+    const m = new maplibregl.Map({
+      container,
+      style: OPENFREEMAP_STYLE,
+      center: [127.6795, 26.2135],
+      zoom: 13.4,
+      pitch: 0,
+      bearing: 0,
+      maxPitch: 70,
+      attributionControl: false,
+    });
+
+    m.addControl(
+      new maplibregl.AttributionControl({
+        compact: true,
+        customAttribution: 'OpenFreeMap · Esri · AWS Terrain',
+      }),
+      'bottom-right'
+    );
+    m.addControl(
+      new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }),
+      'top-right'
+    );
+    m.addControl(
+      new maplibregl.GeolocateControl({
+        trackUserLocation: true,
+        positionOptions: { enableHighAccuracy: true },
+      }),
+      'top-right'
+    );
+
+    m.on('load', () => {
+      const firstSymbol = m
+        .getStyle()
+        .layers?.find((l: { type: string; id: string }) => l.type === 'symbol')?.id;
+
+      // 衛星影像圖層（置於地名文字下方，確保路名與地標依然清晰）
+      m.addSource('sat', {
+        type: 'raster',
+        tiles: [ESRI_SATELLITE_TILES],
+        tileSize: 256,
+        maxzoom: 18,
+      });
+      m.addLayer(
+        {
+          id: 'sat',
+          type: 'raster',
+          source: 'sat',
+          layout: { visibility: 'none' },
+        },
+        firstSymbol
+      );
+
+      // 依 MapLibre 建議將山影與 3D 地形使用獨立 raster-dem 來源
+      const demSource = {
+        type: 'raster-dem' as const,
+        tiles: [AWS_TERRARIUM_DEM],
+        tileSize: 256,
+        maxzoom: 14,
+        encoding: 'terrarium' as const,
+      };
+      m.addSource('dem-shade', demSource);
+      m.addSource('dem-3d', demSource);
+      m.addLayer(
+        {
+          id: 'hillshade',
+          type: 'hillshade',
+          source: 'dem-shade',
+          paint: {
+            'hillshade-exaggeration': 0.35,
+            'hillshade-shadow-color': '#2d3b36',
+          },
+        },
+        firstSymbol
+      );
+
+      // 每日行程路線 GeoJSON 圖層（陸地實線 + 海上賞鯨虛線）
+      m.addSource('routes', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+      m.addLayer({
+        id: 'routes-casing',
+        type: 'line',
+        source: 'routes',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': '#ffffff',
+          'line-width': 7.5,
+          'line-opacity': 0.9,
+        },
+      });
+      m.addLayer({
+        id: 'routes-land',
+        type: 'line',
+        source: 'routes',
+        filter: ['==', ['get', 'sea'], 0],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': ['get', 'color'],
+          'line-width': 4.5,
+          'line-opacity': 0.95,
+        },
+      });
+      m.addLayer({
+        id: 'routes-sea',
+        type: 'line',
+        source: 'routes',
+        filter: ['==', ['get', 'sea'], 1],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': ['get', 'color'],
+          'line-width': 4.5,
+          'line-dasharray': [2, 1.8],
+          'line-opacity': 0.95,
+        },
+      });
+
+      // 預設折疊右下角版權資訊列為 (i) 按鈕
+      const attrib = container.querySelector('.maplibregl-ctrl-attrib');
+      attrib?.classList.remove('maplibregl-compact-show');
+      attrib?.removeAttribute('open');
+
+      setMapReady(true);
+    });
+
+    // 手動拖曳地圖時自動停止飛行導覽
+    m.on('dragstart', () => {
+      tourRunRef.current += 1;
+      setIsTouring(false);
+    });
+
+    mapRef.current = m;
+    const resizeObserver = new ResizeObserver(() => m.resize());
+    resizeObserver.observe(container);
+
+    return () => {
+      tourRunRef.current += 1;
+      resizeObserver.disconnect();
+      markersRef.current.forEach((mk) => mk.remove());
+      markersRef.current = [];
+      m.remove();
+      mapRef.current = null;
+      setMapReady(false);
     };
-  };
+  }, []);
 
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    const drag = dragStateRef.current;
-    if (!drag) return;
-    const dx = e.clientX - drag.startX;
-    const dy = e.clientY - drag.startY;
-    const nextWorldX = drag.startWorldX - dx;
-    const nextWorldY = drag.startWorldY - dy;
-    const nextLng = Math.max(
-      127.0,
-      Math.min(128.2, worldXToLng(nextWorldX, drag.zoomAtStart))
-    );
-    const nextLat = Math.max(
-      25.9,
-      Math.min(26.7, worldYToLat(nextWorldY, drag.zoomAtStart))
-    );
-    setCenter({ lng: nextLng, lat: nextLat });
-  };
+  // 更新 GeoJSON 路線資料
+  useEffect(() => {
+    const m = mapRef.current;
+    if (!mapReady || !m) return;
+    const src = m.getSource('routes') as GeoJSONSource | undefined;
+    if (!src) return;
+    src.setData({
+      type: 'FeatureCollection',
+      features: visibleRoutes.map((route) => ({
+        type: 'Feature',
+        properties: {
+          color: route.color,
+          sea: route.day === 2 || route.day === 3 ? 1 : 0,
+        },
+        geometry: {
+          type: 'LineString',
+          coordinates: route.coords,
+        },
+      })),
+    });
+  }, [mapReady, visibleRoutes]);
 
-  const handlePointerUp = () => {
-    dragStateRef.current = null;
-    setIsDragging(false);
+  // 切換衛星影像
+  useEffect(() => {
+    const m = mapRef.current;
+    if (!mapReady || !m || !m.getLayer('sat')) return;
+    m.setLayoutProperty('sat', 'visibility', isSatellite ? 'visible' : 'none');
+  }, [mapReady, isSatellite]);
+
+  // 切換真實 3D 高程地形與 60° 俯視角
+  useEffect(() => {
+    const m = mapRef.current;
+    if (!mapReady || !m) return;
+    m.setTerrain(is3D ? { source: 'dem-3d', exaggeration: 1.5 } : null);
+    if (lastTerrainRef.current !== is3D) {
+      m.easeTo({ pitch: is3D ? 60 : 0, duration: 800 });
+    }
+    lastTerrainRef.current = is3D;
+  }, [mapReady, is3D]);
+
+  // 依篩選條件更新地圖標記
+  useEffect(() => {
+    const m = mapRef.current;
+    if (!mapReady || !m) return;
+
+    markersRef.current.forEach((mk) => mk.remove());
+    markersRef.current = [];
+
+    visiblePlaces.forEach((place) => {
+      const isSelected = selectedPlace?.id === place.id;
+      const el = document.createElement('button');
+      el.type = 'button';
+      el.setAttribute('aria-label', place.zh);
+      el.style.cursor = 'pointer';
+      el.style.border = 'none';
+      el.style.background = 'transparent';
+      el.style.padding = '0';
+
+      if (place.isHotel) {
+        const badge = document.createElement('span');
+        badge.textContent = `🛏️ ${place.hotelBadge || '飯店'}`;
+        badge.style.cssText = [
+          'display:inline-flex',
+          'align-items:center',
+          'gap:4px',
+          'border-radius:999px',
+          'background:#ffffff',
+          'padding:4px 10px',
+          'font-size:13px',
+          'font-weight:800',
+          'color:#0c4a6e',
+          'white-space:nowrap',
+          `border:2.5px solid ${isSelected ? '#c2410c' : '#0c4a6e'}`,
+          `box-shadow:${isSelected ? '0 0 0 4px rgba(194,65,12,0.28), 0 4px 12px rgba(0,0,0,0.22)' : '0 2px 8px rgba(0,0,0,0.2)'}`,
+          `transform:scale(${isSelected ? 1.1 : 1})`,
+          'transition:transform 160ms ease',
+        ].join(';');
+        el.appendChild(badge);
+      } else {
+        const pin = document.createElement('span');
+        pin.textContent = getPinLabel(place);
+        const sizePx = isSelected ? 38 : 32;
+        pin.style.cssText = [
+          'display:grid',
+          'place-items:center',
+          `width:${sizePx}px`,
+          `height:${sizePx}px`,
+          'border-radius:999px',
+          `background:${getPinColor(place)}`,
+          'color:#ffffff',
+          'border:2.5px solid #ffffff',
+          `font-size:${isSelected ? 16 : 14}px`,
+          `box-shadow:${isSelected ? '0 0 0 4px rgba(12,74,110,0.35), 0 4px 12px rgba(0,0,0,0.26)' : '0 2px 6px rgba(0,0,0,0.25)'}`,
+          'transition:transform 160ms ease',
+        ].join(';');
+        el.appendChild(pin);
+      }
+
+      el.onclick = (e) => {
+        e.stopPropagation();
+        stopTour();
+        setSelectedPlace(place);
+        flyToPlace(place);
+      };
+
+      const marker = new maplibregl.Marker({ element: el })
+        .setLngLat(place.coords)
+        .addTo(m);
+      if (isSelected) {
+        marker.getElement().style.zIndex = '5';
+      }
+      markersRef.current.push(marker);
+    });
+  }, [mapReady, visiblePlaces, selectedPlace, stopTour, flyToPlace]);
+
+  // 切換篩選類別時自動縮放至該組地點視野
+  useEffect(() => {
+    if (!mapReady) return;
+    stopTour();
+    fitPlacesBounds(visiblePlaces, selectedFilter);
+    if (
+      visiblePlaces.length > 0 &&
+      !visiblePlaces.some((p) => p.id === selectedPlace?.id)
+    ) {
+      setSelectedPlace(visiblePlaces[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapReady, selectedFilter]);
+
+  const handleToggleTour = async () => {
+    if (isTouring) {
+      stopTour();
+      return;
+    }
+    if (visiblePlaces.length === 0) return;
+
+    const runId = ++tourRunRef.current;
+    setIsTouring(true);
+    for (let i = 0; i < visiblePlaces.length; i++) {
+      if (tourRunRef.current !== runId) return;
+      const target = visiblePlaces[i];
+      setSelectedPlace(target);
+      flyToPlace(target);
+      await new Promise((r) => setTimeout(r, 3800));
+    }
+    if (tourRunRef.current === runId) {
+      setIsTouring(false);
+    }
   };
 
   const handleCopyName = (id: string, text: string) => {
@@ -1476,9 +1619,17 @@ function OkinawaMapTab() {
   };
 
   const focusPlaceOnMap = (place: Place) => {
+    stopTour();
     setSelectedPlace(place);
-    setCenter({ lng: place.coords[0], lat: place.coords[1] });
-    setZoom((z) => Math.max(z, place.id === 'kerama-whales' ? 11.2 : 14.5));
+    flyToPlace(place);
+  };
+
+  const currentIdx = visiblePlaces.findIndex((p) => p.id === selectedPlace?.id);
+  const handleStepPlace = (delta: number) => {
+    if (visiblePlaces.length === 0) return;
+    const baseIdx = currentIdx >= 0 ? currentIdx : 0;
+    const nextIdx = Math.max(0, Math.min(visiblePlaces.length - 1, baseIdx + delta));
+    focusPlaceOnMap(visiblePlaces[nextIdx]);
   };
 
   const mapFilters: { id: MapFilterId; label: string }[] = [
@@ -1492,33 +1643,9 @@ function OkinawaMapTab() {
     { id: 4, label: '第 4 天' },
   ];
 
-  const toSvgPoints = (coords: [number, number][]) =>
-    coords
-      .map((c) => {
-        const p = projectPoint(c);
-        return `${p.x.toFixed(1)},${p.y.toFixed(1)}`;
-      })
-      .join(' ');
-
-  const getPinColor = (place: Place) => {
-    if (place.category === '追鯨') return '#0c4a6e';
-    if (place.category === '美食') return '#c2410c';
-    if (place.category === '超市' || place.category === '逛街') return '#0f766e';
-    if (place.category === '碼頭') return '#0369a1';
-    return '#475569';
-  };
-
-  const getPinLabel = (place: Place) => {
-    if (place.category === '追鯨') return '🐋';
-    if (place.category === '美食') return '🍽️';
-    if (place.category === '超市') return '🛒';
-    if (place.category === '碼頭') return '⚓';
-    if (place.category === '交通') return '✈️';
-    return '📍';
-  };
-
   return (
     <div className="space-y-3.5">
+      {/* 頂部篩選膠囊 */}
       <div className="flex gap-2 overflow-x-auto pb-1">
         {mapFilters.map((f) => {
           const active = selectedFilter === f.id;
@@ -1526,9 +1653,7 @@ function OkinawaMapTab() {
             <button
               key={String(f.id)}
               type="button"
-              onClick={() => {
-                setSelectedFilter(f.id);
-              }}
+              onClick={() => setSelectedFilter(f.id)}
               className={`min-h-10 shrink-0 rounded-full border px-4 text-[14px] font-bold transition active:scale-95 ${
                 active
                   ? 'border-[#0c4a6e] bg-[#0c4a6e] text-white shadow-sm'
@@ -1541,156 +1666,17 @@ function OkinawaMapTab() {
         })}
       </div>
 
-      <div
-        ref={mapBoxRef}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
-        className={`relative h-[58vh] min-h-[410px] w-full touch-none overflow-hidden rounded-3xl border border-[#e7e2d8] shadow-[0_6px_20px_rgba(12,74,110,0.12)] select-none ${
-          isDragging ? 'cursor-grabbing' : 'cursor-grab'
-        }`}
-        style={{
-          backgroundColor: isSatellite ? '#0c2d48' : '#a8ccf0',
-        }}
-      >
-        <div
-          className="absolute inset-0 transition-transform duration-500 ease-out"
-          style={{
-            transform: is3D
-              ? 'perspective(850px) rotateX(40deg) scale(1.18) translateY(-18px)'
-              : 'none',
-            transformOrigin: '50% 60%',
-          }}
-        >
-          <svg
-            width={boxSize.width}
-            height={boxSize.height}
-            className="pointer-events-none absolute inset-0"
-          >
-            <polygon
-              points={toSvgPoints(OKINAWA_SOUTH_COASTLINE)}
-              fill={isSatellite ? '#25523b' : '#edf2e4'}
-              stroke={isSatellite ? '#4b7b5f' : '#c7d6be'}
-              strokeWidth="2"
-              strokeLinejoin="round"
-            />
-            <polygon
-              points={toSvgPoints(KERAMA_TOKASHIKI_COASTLINE)}
-              fill={isSatellite ? '#25523b' : '#edf2e4'}
-              stroke={isSatellite ? '#4b7b5f' : '#c7d6be'}
-              strokeWidth="2"
-              strokeLinejoin="round"
-            />
-            <polygon
-              points={toSvgPoints(KERAMA_ZAMAMI_COASTLINE)}
-              fill={isSatellite ? '#25523b' : '#edf2e4'}
-              stroke={isSatellite ? '#4b7b5f' : '#c7d6be'}
-              strokeWidth="2"
-              strokeLinejoin="round"
-            />
-          </svg>
+      {/* MapLibre GL JS 向量互動地圖主容器 */}
+      <div className="relative isolate h-[58vh] min-h-[410px] w-full overflow-hidden rounded-3xl border border-[#e7e2d8] bg-[#cfe3f4] shadow-[0_6px_20px_rgba(12,74,110,0.12)]">
+        {/* 使用 inline absolute 避免 MapLibre CSS 覆蓋容器高度 */}
+        <div ref={mapContainerRef} style={{ position: 'absolute', inset: 0 }} />
 
-          <div className="pointer-events-none absolute inset-0 overflow-hidden">
-            {tiles.map((t) => (
-              <MapTileImage
-                key={t.key}
-                url={t.url}
-                fallbackUrl={t.fallbackUrl}
-                left={t.left}
-                top={t.top}
-                size={t.size}
-              />
-            ))}
-          </div>
-
-          <svg
-            width={boxSize.width}
-            height={boxSize.height}
-            className="pointer-events-none absolute inset-0 z-10"
-          >
-            {visibleRoutes.map((route) => {
-              const pts = toSvgPoints(route.coords);
-              return (
-                <g key={route.day}>
-                  <polyline
-                    points={pts}
-                    fill="none"
-                    stroke="#ffffff"
-                    strokeWidth="7"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    opacity="0.9"
-                  />
-                  <polyline
-                    points={pts}
-                    fill="none"
-                    stroke={route.color}
-                    strokeWidth="4"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeDasharray={route.day === 2 || route.day === 3 ? '8 6' : undefined}
-                    opacity="0.95"
-                  />
-                </g>
-              );
-            })}
-          </svg>
-
-          <div className="pointer-events-none absolute inset-0 z-20">
-            {visiblePlaces.map((place) => {
-              const pos = projectPoint(place.coords);
-              const isSelected = selectedPlace?.id === place.id;
-              return (
-                <button
-                  key={place.id}
-                  type="button"
-                  aria-label={place.zh}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    focusPlaceOnMap(place);
-                  }}
-                  style={{
-                    position: 'absolute',
-                    left: `${pos.x}px`,
-                    top: `${pos.y}px`,
-                    transform: `translate(-50%, -50%) scale(${isSelected ? 1.15 : 1})`,
-                  }}
-                  className="pointer-events-auto transition-transform duration-150 focus:outline-none"
-                >
-                  {place.isHotel ? (
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-full border-[2.5px] bg-white px-2.5 py-1 text-[13px] font-extrabold text-[#0c4a6e] shadow-md whitespace-nowrap ${
-                        isSelected
-                          ? 'border-[#c2410c] ring-2 ring-[#c2410c]/30'
-                          : 'border-[#0c4a6e]'
-                      }`}
-                    >
-                      <span className="leading-none">🛏️</span>
-                      <span>{place.hotelBadge}</span>
-                    </span>
-                  ) : (
-                    <span
-                      className={`grid place-items-center rounded-full border-[2.5px] border-white text-white shadow-md ${
-                        isSelected
-                          ? 'h-9 w-9 text-[15px] ring-2 ring-[#0c4a6e]/40'
-                          : 'h-7 w-7 text-[13px]'
-                      }`}
-                      style={{ backgroundColor: getPinColor(place) }}
-                    >
-                      {getPinLabel(place)}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="absolute top-3 left-3 z-30 flex flex-col gap-2">
+        {/* 左上角控制：衛星 + 真實 3D 地形 + 飛行導覽 + 回到全覽 */}
+        <div className="absolute top-3 left-3 z-10 flex flex-col gap-2">
           <button
             type="button"
             onClick={() => setIsSatellite((v) => !v)}
+            aria-pressed={isSatellite}
             className={`flex min-h-10 items-center gap-1.5 rounded-full px-3.5 text-[14px] font-bold shadow-md transition active:scale-95 ${
               isSatellite
                 ? 'bg-[#0c4a6e] text-white'
@@ -1704,6 +1690,7 @@ function OkinawaMapTab() {
           <button
             type="button"
             onClick={() => setIs3D((v) => !v)}
+            aria-pressed={is3D}
             className={`flex min-h-10 items-center gap-1.5 rounded-full px-3.5 text-[14px] font-bold shadow-md transition active:scale-95 ${
               is3D
                 ? 'bg-[#0c4a6e] text-white'
@@ -1713,51 +1700,45 @@ function OkinawaMapTab() {
             <Mountain className="h-4 w-4" />
             <span>3D</span>
           </button>
-        </div>
-
-        <div className="absolute top-3 right-3 z-30 flex flex-col gap-2">
-          <div className="flex flex-col overflow-hidden rounded-2xl bg-white/95 shadow-md backdrop-blur">
-            <button
-              type="button"
-              aria-label="放大"
-              onClick={() => setZoom((z) => Math.min(16, z + 0.75))}
-              className="grid h-10 w-10 place-items-center border-b border-[#ece7dd] text-[#0f293a] active:bg-[#f4f0e8]"
-            >
-              <Plus className="h-5 w-5" />
-            </button>
-            <button
-              type="button"
-              aria-label="縮小"
-              onClick={() => setZoom((z) => Math.max(9.5, z - 0.75))}
-              className="grid h-10 w-10 place-items-center border-b border-[#ece7dd] text-[#0f293a] active:bg-[#f4f0e8]"
-            >
-              <Minus className="h-5 w-5" />
-            </button>
-            <button
-              type="button"
-              aria-label="重置視角"
-              onClick={() => setIs3D(false)}
-              className="grid h-10 w-10 place-items-center text-[#0f293a] active:bg-[#f4f0e8]"
-            >
-              <Compass className="h-5 w-5 text-[#c2410c]" />
-            </button>
-          </div>
 
           <button
             type="button"
-            aria-label="回到全覽視野"
-            onClick={() => fitCurrentBounds(selectedFilter)}
-            className="grid h-10 w-10 place-items-center rounded-2xl bg-white/95 text-[#0f293a] shadow-md backdrop-blur active:scale-95"
+            onClick={handleToggleTour}
+            aria-pressed={isTouring}
+            className={`flex min-h-10 items-center gap-1.5 rounded-full px-3.5 text-[14px] font-bold shadow-md transition active:scale-95 ${
+              isTouring
+                ? 'bg-[#c2410c] text-white'
+                : 'bg-white/95 text-[#0f293a] backdrop-blur'
+            }`}
           >
-            <Crosshair className="h-5 w-5" />
+            {isTouring ? (
+              <Pause className="h-4 w-4" />
+            ) : (
+              <Play className="h-4 w-4" />
+            )}
+            <span>{isTouring ? '停止導覽' : '飛行導覽'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              stopTour();
+              fitPlacesBounds(visiblePlaces, selectedFilter);
+            }}
+            aria-label="回到全覽視野"
+            className="flex min-h-10 items-center gap-1.5 rounded-full bg-white/95 px-3.5 text-[13px] font-bold text-[#0f293a] shadow-md backdrop-blur transition active:scale-95"
+          >
+            <Crosshair className="h-4 w-4" />
+            <span>全覽</span>
           </button>
         </div>
 
-        <div className="pointer-events-none absolute bottom-3 left-3 z-30 rounded-full bg-white/90 px-3 py-1 text-[11px] font-bold text-[#0f293a] shadow-sm backdrop-blur">
+        <div className="pointer-events-none absolute bottom-3 left-3 z-10 rounded-full bg-white/90 px-3 py-1 text-[11px] font-bold text-[#0f293a] shadow-sm backdrop-blur">
           🛏️ 飯店 · 🍽️ 美食 · 🛒 超市 · 🐋 追鯨
         </div>
       </div>
 
+      {/* 選中地點詳細資訊卡片 */}
       {selectedPlace && (
         <article className="rounded-3xl border border-[#e7e2d8] bg-white p-4 shadow-[0_2px_12px_rgba(12,74,110,0.06)]">
           <div className="flex items-start justify-between gap-2">
@@ -1789,7 +1770,16 @@ function OkinawaMapTab() {
             {selectedPlace.desc}
           </p>
 
-          <div className="mt-3.5 flex gap-2">
+          <div className="mt-3.5 flex items-center gap-2">
+            <button
+              type="button"
+              aria-label="上一個地點"
+              disabled={currentIdx <= 0}
+              onClick={() => handleStepPlace(-1)}
+              className="grid h-11 w-10 shrink-0 place-items-center rounded-2xl border border-[#e7e2d8] bg-[#faf7f2] text-[#0f293a] transition active:scale-95 disabled:opacity-35"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
             <a
               href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
                 selectedPlace.query
@@ -1804,7 +1794,7 @@ function OkinawaMapTab() {
             <button
               type="button"
               onClick={() => handleCopyName(selectedPlace.id, selectedPlace.en)}
-              className="flex min-h-11 items-center justify-center gap-1 rounded-2xl border border-[#e7e2d8] bg-[#faf7f2] px-3.5 text-[13px] font-bold text-[#0f293a] transition active:scale-95"
+              className="flex min-h-11 shrink-0 items-center justify-center gap-1 rounded-2xl border border-[#e7e2d8] bg-[#faf7f2] px-3 text-[13px] font-bold text-[#0f293a] transition active:scale-95"
             >
               {copiedId === selectedPlace.id ? (
                 <>
@@ -1814,14 +1804,24 @@ function OkinawaMapTab() {
               ) : (
                 <>
                   <Copy className="h-4 w-4" />
-                  <span>複製名稱</span>
+                  <span>複製</span>
                 </>
               )}
+            </button>
+            <button
+              type="button"
+              aria-label="下一個地點"
+              disabled={currentIdx < 0 || currentIdx >= visiblePlaces.length - 1}
+              onClick={() => handleStepPlace(1)}
+              className="grid h-11 w-10 shrink-0 place-items-center rounded-2xl border border-[#e7e2d8] bg-[#faf7f2] text-[#0f293a] transition active:scale-95 disabled:opacity-35"
+            >
+              <ChevronRight className="h-5 w-5" />
             </button>
           </div>
         </article>
       )}
 
+      {/* 快速清單 */}
       <section className="rounded-3xl border border-[#e7e2d8] bg-white p-3.5">
         <div className="mb-2 flex items-center justify-between px-1">
           <h4 className="text-[14px] font-extrabold text-[#0f293a]">
@@ -1856,7 +1856,11 @@ function OkinawaMapTab() {
   );
 }
 
-const FALLBACK_JPY_PER_TWD = 4.75;
+// ============================================================================
+// 5. 即時日圓換算器 (JpyCalculator - 支援含稅/免稅 10% 試算)
+// ============================================================================
+
+const FALLBACK_JPY_PER_TWD = 4.75; // 1 TWD ≈ 4.75 JPY (1 JPY ≈ 0.2105 TWD)
 
 function JpyCalculator({
   calcRef,
@@ -2034,6 +2038,7 @@ function JpyCalculator({
         </button>
       </div>
 
+      {/* 含稅 / 免稅 10% 切換 */}
       <div className="mb-3 grid grid-cols-2 gap-1.5 rounded-2xl bg-[#f4f0e8] p-1">
         <button
           type="button"
@@ -2055,6 +2060,7 @@ function JpyCalculator({
         </button>
       </div>
 
+      {/* 匯率微調 */}
       <div className="mb-3 flex items-center justify-between gap-2 rounded-2xl bg-[#faf7f2] px-3 py-2">
         <span className="text-[12.5px] font-semibold text-[#57534e]">
           1 台幣換日圓 (JPY)
@@ -2069,6 +2075,7 @@ function JpyCalculator({
         />
       </div>
 
+      {/* 雙向輸入框 */}
       <div className="space-y-2.5">
         <div className="rounded-2xl border border-[#e7e2d8] bg-[#faf7f2]/70 px-3.5 py-2.5">
           <div className="flex items-center justify-between">
@@ -2111,6 +2118,7 @@ function JpyCalculator({
         </div>
       </div>
 
+      {/* 快捷金額 */}
       <div className="mt-3 flex flex-wrap gap-1.5">
         {quickJpyList.map((q) => (
           <button
@@ -2130,6 +2138,10 @@ function JpyCalculator({
     </section>
   );
 }
+
+// ============================================================================
+// 5.5 頁面右上方互動小遊戲 (WhaleMiniGameModal - 慶良間追鯨人品大考驗)
+// ============================================================================
 
 const GAME_DURATION = 20;
 
@@ -2349,6 +2361,7 @@ function WhaleMiniGameModal({
           </button>
         </div>
 
+        {/* 狀態列：分數 / 連擊 / 時間 */}
         <div className="mb-3 grid grid-cols-3 gap-2 rounded-2xl bg-[#f0f9ff] p-2.5 text-center">
           <div>
             <div className="text-[11px] font-bold text-[#6b7280]">目前分數</div>
@@ -2372,6 +2385,7 @@ function WhaleMiniGameModal({
           </div>
         </div>
 
+        {/* 遊戲主區：3x3 海洋方格 */}
         {phase === 'ready' && (
           <div className="space-y-3 rounded-2xl border border-[#dbeafe] bg-gradient-to-b from-[#e0f2fe] to-[#f0f9ff] p-4 text-center">
             <div className="text-[40px] leading-none">🐳 🐋 🐢</div>
@@ -2460,6 +2474,7 @@ function WhaleMiniGameModal({
           </div>
         )}
 
+        {/* 本團即時排行榜 */}
         <div className="mt-4 rounded-2xl border border-[#e7e2d8] bg-[#faf7f2] p-3">
           <div className="mb-2 flex items-center justify-between">
             <div className="flex items-center gap-1.5 text-[13.5px] font-extrabold text-[#0f293a]">
@@ -2496,6 +2511,10 @@ function WhaleMiniGameModal({
     </div>
   );
 }
+
+// ============================================================================
+// 5.6 火柴人頭部貼紙裁切工具 (AvatarCropModal)
+// ============================================================================
 
 const PREVIEW_SIZE = 240;
 const HEAD_RX = 72;
@@ -2536,6 +2555,7 @@ function AvatarCropModal({
     [targetId]
   );
 
+  // 繪製即時頭部裁切預覽
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !imgEl) return;
@@ -2554,6 +2574,7 @@ function AvatarCropModal({
     ctx.clearRect(0, 0, PREVIEW_SIZE, PREVIEW_SIZE);
     ctx.drawImage(imgEl, dx, dy, drawW, drawH);
 
+    // 外部半透明遮罩，只清楚露出中央橢圓頭部範圍
     ctx.save();
     ctx.fillStyle = 'rgba(15, 41, 58, 0.58)';
     ctx.beginPath();
@@ -2570,6 +2591,7 @@ function AvatarCropModal({
     );
     ctx.fill();
 
+    // 虛線頭型框提示
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 2.5;
     ctx.setLineDash([6, 4]);
@@ -2639,6 +2661,7 @@ function AvatarCropModal({
       const drawW = imgEl.naturalWidth * baseScale * zoom;
       const drawH = imgEl.naturalHeight * baseScale * zoom;
 
+      // 先畫白色貼紙外框，再以 1:1 橢圓遮罩只裁切頭部
       ctx.clearRect(0, 0, outW, outH);
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
@@ -2696,6 +2719,7 @@ function AvatarCropModal({
           </button>
         </div>
 
+        {/* 選擇要更換頭像的成員 */}
         <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1">
           {MEMBERS.map((m) => (
             <button
@@ -2788,6 +2812,7 @@ function AvatarCropModal({
               👆 拖曳照片移動位置，滑動下方放大只留頭部
             </p>
 
+            {/* 縮放拉桿 */}
             <div className="flex w-full items-center gap-2 rounded-2xl bg-[#faf7f2] px-3 py-2">
               <Minus className="h-4 w-4 shrink-0 text-[#57534e]" />
               <input
@@ -2826,6 +2851,10 @@ function AvatarCropModal({
   );
 }
 
+// ============================================================================
+// 6. 主應用程式 (App)
+// ============================================================================
+
 export default function App() {
   const todayStr = useMemo(() => getLocalTodayStr(), []);
   const [activeGroupId, setActiveGroupId] = useState(() => {
@@ -2851,6 +2880,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'today' | 'itinerary' | 'map' | 'info' | 'checklist'>('today');
   const [selectedDayIdx, setSelectedDayIdx] = useState(tripStatus.defaultDayIdx);
 
+  // 雲端登入與跨裝置即時同步狀態
   const [user, setUser] = useState<AppUser | null>(null);
   const [claims, setClaims] = useState<Record<string, MemberClaim>>({});
   const [checkData, setCheckData] = useState<Record<string, MemberChecklistState>>({});
@@ -2864,6 +2894,7 @@ export default function App() {
     }
   });
 
+  // 介面互動與表單狀態
   const [previewMemberId, setPreviewMemberId] = useState<string>(MEMBERS[0].id);
   const [showMemberModal, setShowMemberModal] = useState(false);
   const [showGameModal, setShowGameModal] = useState(false);
@@ -2873,6 +2904,7 @@ export default function App() {
   const [newItemText, setNewItemText] = useState('');
   const calcRef = useRef<HTMLElement | null>(null);
 
+  // (1) 初始化驗證並監聽登入狀態（若尚未設定 Firebase 則自動切換為本機儲存模式）
   useEffect(() => {
     if (!auth) {
       setUser({ uid: 'local-device' });
@@ -2907,6 +2939,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // (2) 驗證完成後，即時監聽全團認領狀態與打包清單
   useEffect(() => {
     if (!user || !db) return;
 
@@ -2985,6 +3018,7 @@ export default function App() {
     };
   }, [user]);
 
+  // 計算目前團別中，本裝置已認領的成員身分
   const myClaimedMemberId = useMemo(() => {
     if (!user) return null;
     const found = MEMBERS.find(
@@ -2996,6 +3030,7 @@ export default function App() {
   const isMemberLocked = Boolean(myClaimedMemberId);
   const activeMemberId = myClaimedMemberId || previewMemberId;
 
+  // 認領並鎖定成員身分（跨裝置唯一認領）
   const handleClaimMember = useCallback(
     async (memberId: string) => {
       if (!user || isClaiming) return;
@@ -3063,6 +3098,7 @@ export default function App() {
     [user, isClaiming, activeGroupId, claims, myClaimedMemberId]
   );
 
+  // 解除目前團別的認領鎖定，釋放名額給其他人
   const handleReleaseClaim = useCallback(async () => {
     if (!user || !myClaimedMemberId || isClaiming) return;
     setSyncError(null);
@@ -3272,6 +3308,7 @@ export default function App() {
     [allMemberItems, memberChecklistState.checked]
   );
 
+  // 寫入雲端同步個人裝備清單（未設 Firebase 時自動存本機）
   const saveMemberChecklist = useCallback(
     async (nextState: MemberChecklistState) => {
       if (!user) return;
@@ -3367,6 +3404,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#faf7f2] text-[#0f293a] antialiased selection:bg-[#bae6fd] selection:text-[#0c4a6e]">
+      {/* ==================== 頂部 Sticky Header (65px) ==================== */}
       <header className="sticky top-0 z-30 h-[65px] border-b border-[#e7e2d8] bg-[#faf7f2]/95 backdrop-blur">
         <div className="mx-auto flex h-full max-w-md items-center justify-between gap-2 px-4">
           <button
@@ -3435,6 +3473,7 @@ export default function App() {
         </div>
       </header>
 
+      {/* ==================== 追鯨互動小遊戲 Modal ==================== */}
       {showGameModal && (
         <WhaleMiniGameModal
           onClose={() => setShowGameModal(false)}
@@ -3445,6 +3484,7 @@ export default function App() {
         />
       )}
 
+      {/* ==================== 火柴人頭部貼紙裁切 Modal ==================== */}
       {cropTargetMember && (
         <AvatarCropModal
           initialMember={cropTargetMember}
@@ -3455,6 +3495,7 @@ export default function App() {
         />
       )}
 
+      {/* ==================== 成員唯一認領與鎖定 Modal ==================== */}
       {showMemberModal && (
         <div
           className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 backdrop-blur-[2px] sm:items-center"
@@ -3600,9 +3641,12 @@ export default function App() {
         </div>
       )}
 
+      {/* ==================== 主內容區 (max-w-md) ==================== */}
       <main className="mx-auto w-full max-w-md px-4 pt-3.5 pb-28">
+        {/* ---------- TAB 1: 今天 ---------- */}
         {activeTab === 'today' && (
           <div className="space-y-4">
+            {/* 兩團切換器 */}
             <div className="grid grid-cols-2 gap-1.5 rounded-2xl border border-[#e7e2d8] bg-white p-1.5 shadow-xs">
               {TRIP_GROUPS.map((g) => {
                 const isActive = g.id === activeGroupId;
@@ -3803,6 +3847,7 @@ export default function App() {
           </div>
         )}
 
+        {/* ---------- TAB 2: 行程總覽 ---------- */}
         {activeTab === 'itinerary' && (
           <div className="space-y-4">
             <div className="px-1">
@@ -3886,12 +3931,15 @@ export default function App() {
           </div>
         )}
 
+        {/* ---------- TAB 3: 沖繩互動地圖 ---------- */}
         {activeTab === 'map' && <OkinawaMapTab />}
 
+        {/* ---------- TAB 4: 美食、超市與沖繩實用資料 ---------- */}
         {activeTab === 'info' && (
           <div className="space-y-4">
             <JpyCalculator calcRef={calcRef} />
 
+            {/* 團隊編成與 LINE 聯繫方式 */}
             <section className="rounded-3xl border border-[#bbf7d0] bg-white p-4 shadow-[0_2px_10px_rgba(6,199,85,0.08)]">
               <div className="mb-3 flex items-center gap-2">
                 <span className="grid h-9 w-9 place-items-center rounded-2xl bg-[#dcfce7] text-[#06C755]">
@@ -3933,6 +3981,7 @@ export default function App() {
               </div>
             </section>
 
+            {/* 裝備租借費用（現場繳交日幣） */}
             <section className="rounded-3xl border border-[#fde68a] bg-white p-4 shadow-[0_2px_10px_rgba(217,119,6,0.08)]">
               <div className="mb-3 flex items-center gap-2">
                 <span className="grid h-9 w-9 place-items-center rounded-2xl bg-[#fef3c7] text-[#b45309]">
@@ -3964,6 +4013,7 @@ export default function App() {
               </div>
             </section>
 
+            {/* 住宿介紹：Almont Hotel Naha Kenchomae */}
             <section className="rounded-3xl border border-[#e7e2d8] bg-white p-4 shadow-[0_2px_10px_rgba(12,74,110,0.04)]">
               <div className="mb-3 flex items-center gap-2">
                 <span className="grid h-9 w-9 place-items-center rounded-2xl bg-[#e0f2fe] text-[#0369a1]">
@@ -4005,6 +4055,7 @@ export default function App() {
               </a>
             </section>
 
+            {/* 沖繩那霸美食推薦 */}
             <section className="rounded-3xl border border-[#e7e2d8] bg-white p-4 shadow-[0_2px_10px_rgba(12,74,110,0.04)]">
               <div className="mb-3 flex items-center gap-2">
                 <span className="grid h-9 w-9 place-items-center rounded-2xl bg-[#fff7ed] text-[#c2410c]">
@@ -4056,6 +4107,7 @@ export default function App() {
               </div>
             </section>
 
+            {/* 飯店周邊超市、藥妝與市場 */}
             <section className="rounded-3xl border border-[#e7e2d8] bg-white p-4 shadow-[0_2px_10px_rgba(12,74,110,0.04)]">
               <div className="mb-3 flex items-center gap-2">
                 <span className="grid h-9 w-9 place-items-center rounded-2xl bg-[#ccfbf1] text-[#0f766e]">
@@ -4107,6 +4159,7 @@ export default function App() {
               </div>
             </section>
 
+            {/* Visit Japan Web 與沖繩入境/追鯨須知 */}
             <section className="rounded-3xl border border-[#e7e2d8] bg-white p-4 shadow-[0_2px_10px_rgba(12,74,110,0.04)]">
               <div className="mb-3 flex items-center gap-2">
                 <span className="grid h-9 w-9 place-items-center rounded-2xl bg-[#eff6ff] text-[#1d4ed8]">
@@ -4153,6 +4206,7 @@ export default function App() {
           </div>
         )}
 
+        {/* ---------- TAB 5: 個人化裝備與打包清單 ---------- */}
         {activeTab === 'checklist' && (
           <div className="space-y-4">
             <section className="rounded-3xl border border-[#e7e2d8] bg-white p-4 shadow-[0_2px_10px_rgba(12,74,110,0.04)]">
@@ -4327,6 +4381,7 @@ export default function App() {
         )}
       </main>
 
+      {/* ==================== 底部 5 分頁導覽列 (68px) ==================== */}
       <nav className="fixed inset-x-0 bottom-0 z-30 h-[68px] border-t border-[#e7e2d8] bg-white/95 backdrop-blur">
         <div className="mx-auto grid h-full max-w-md grid-cols-5">
           {navItems.map(({ id, label, Icon }) => {
