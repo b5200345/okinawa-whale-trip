@@ -1,0 +1,6 @@
+{
+  "name": "沖繩大翅鯨之旅",
+  "description": "iDiving 沖繩大翅鯨之旅隨行手冊：雙團行程總覽、那霸與慶良間互動地圖、即時日圓換算、個人裝備清單與追鯨小遊戲。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

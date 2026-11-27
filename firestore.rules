@@ -1,0 +1,25 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /artifacts/{appId}/public/data/{collectionName}/{docId} {
+      allow read: if request.auth != null
+        && collectionName in [
+          'member_claims',
+          'member_checklists',
+          'whale_game_scores',
+          'member_avatars'
+        ];
+      allow write: if request.auth != null
+        && collectionName in [
+          'member_claims',
+          'member_checklists',
+          'whale_game_scores',
+          'member_avatars'
+        ];
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

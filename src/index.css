@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+@keyframes walkBody {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-2.5px);
+  }
+}
+
+@keyframes swingArmL {
+  0%, 100% {
+    transform: rotate(22deg);
+  }
+  50% {
+    transform: rotate(-22deg);
+  }
+}
+
+@keyframes swingArmR {
+  0%, 100% {
+    transform: rotate(-22deg);
+  }
+  50% {
+    transform: rotate(22deg);
+  }
+}
+
+@keyframes swingLegL {
+  0%, 100% {
+    transform: rotate(-24deg);
+  }
+  50% {
+    transform: rotate(24deg);
+  }
+}
+
+@keyframes swingLegR {
+  0%, 100% {
+    transform: rotate(24deg);
+  }
+  50% {
+    transform: rotate(-24deg);
+  }
+}
+
+@keyframes bubblePop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 6px) scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+.crew-fig[data-motion="walk"] .crew-skeleton {
+  animation: walkBody 0.34s infinite ease-in-out;
+}
+
+.crew-fig[data-motion="walk"] .arm-l {
+  animation: swingArmL 0.68s infinite ease-in-out;
+}
+
+.crew-fig[data-motion="walk"] .arm-r {
+  animation: swingArmR 0.68s infinite ease-in-out;
+}
+
+.crew-fig[data-motion="walk"] .leg-l {
+  animation: swingLegL 0.68s infinite ease-in-out;
+}
+
+.crew-fig[data-motion="walk"] .leg-r {
+  animation: swingLegR 0.68s infinite ease-in-out;
+}
