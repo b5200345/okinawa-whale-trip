@@ -4046,7 +4046,7 @@ export default function App() {
               </div>
 
               <div className="mt-3 rounded-2xl bg-[#fffbeb] px-3.5 py-2.5 text-[13.5px] font-bold leading-relaxed text-[#92400e]">
-                ⚠️ 若有租借上述裝備，請於現場繳交「日幣現金」給帶隊教練／我們，建議出發前先備妥日幣零錢！
+                ⚠️ 若有租借上述裝備，請於現場繳交「日幣現金」給帶隊教練，建議出發前先備妥日幣零錢！
               </div>
             </section>
 
