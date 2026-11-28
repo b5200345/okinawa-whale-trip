@@ -990,13 +990,14 @@ function CrewPlayground({
     id: string;
     name: string;
     text: string;
+    align: 'left' | 'center' | 'right';
     x: number;
   } | null>(null);
 
   const actorsRef = useRef(
     MEMBERS.map((m, idx) => ({
       id: m.id,
-      x: 16 + idx * 35,
+      x: 20 + idx * 32,
       dir: idx % 2 === 0 ? 1 : -1,
       speed: 18 + (idx % 4) * 5,
       walking: true,
@@ -1015,8 +1016,8 @@ function CrewPlayground({
       lastTime = now;
 
       const stageW = stageRef.current?.clientWidth || 360;
-      const minX = 14;
-      const maxX = Math.max(minX + 40, stageW - 58);
+      const minX = 18;
+      const maxX = Math.max(minX + 40, stageW - 62);
 
       actorsRef.current.forEach((a) => {
         a.timer -= dt;
@@ -1074,9 +1075,16 @@ function CrewPlayground({
     const quote = member.quotes[Math.floor(Math.random() * member.quotes.length)];
     const stageW = stageRef.current?.clientWidth || 360;
     const rawX = (actor?.x ?? 120) + 22;
-    const clampedX = Math.max(84, Math.min(stageW - 84, rawX));
+    const edgeThreshold = Math.min(126, stageW * 0.36);
 
-    setSpeech({ id: member.id, name: member.name, text: quote, x: clampedX });
+    let align: 'left' | 'center' | 'right' = 'center';
+    if (rawX <= edgeThreshold) {
+      align = 'left';
+    } else if (rawX >= stageW - edgeThreshold) {
+      align = 'right';
+    }
+
+    setSpeech({ id: member.id, name: member.name, text: quote, align, x: rawX });
     onSelectMember?.(member.id);
   };
 
@@ -1113,10 +1121,16 @@ function CrewPlayground({
         <div
           key={`${speech.id}-${speech.text}`}
           style={{
-            left: `${speech.x}px`,
+            ...(speech.align === 'left'
+              ? { left: '12px' }
+              : speech.align === 'right'
+              ? { right: '12px' }
+              : { left: `${speech.x}px` }),
             animation: 'bubblePop 180ms ease-out forwards',
           }}
-          className="pointer-events-none absolute top-10 z-30 max-w-[220px] -translate-x-1/2 rounded-2xl border border-[#bae6fd] bg-white px-3 py-1.5 text-center text-[12.5px] font-bold text-[#0f293a] shadow-md"
+          className={`pointer-events-none absolute top-11 z-30 max-w-[min(220px,calc(100%-24px))] rounded-2xl border border-[#bae6fd] bg-white px-3 py-1.5 text-[12.5px] font-bold text-[#0f293a] shadow-md ${
+            speech.align === 'center' ? '-translate-x-1/2 text-center' : 'text-left'
+          }`}
         >
           <span className="text-[#0369a1]">{speech.name}：</span>
           {speech.text}
