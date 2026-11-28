@@ -245,13 +245,13 @@ const TRIP_GROUPS: TripGroup[] = [
   {
     id: 'group2',
     label: '第 2 團',
-    dateRange: '3/15 – 3/18',
-    fullRange: '2027/03/15 (一) – 03/18 (四)',
+    dateRange: '3/11 – 3/14',
+    fullRange: '2027/03/11 (四) – 03/14 (日)',
     daysMeta: [
-      { isoDate: '2027-03-15', shortDate: '03/15 (一)', dateLabel: '3月15日 週一', sunset: '18:36' },
-      { isoDate: '2027-03-16', shortDate: '03/16 (二)', dateLabel: '3月16日 週二', sunset: '18:37' },
-      { isoDate: '2027-03-17', shortDate: '03/17 (三)', dateLabel: '3月17日 週三', sunset: '18:37' },
-      { isoDate: '2027-03-18', shortDate: '03/18 (四)', dateLabel: '3月18日 週四', sunset: '18:06 (台北)' },
+      { isoDate: '2027-03-11', shortDate: '03/11 (四)', dateLabel: '3月11日 週四', sunset: '18:34' },
+      { isoDate: '2027-03-12', shortDate: '03/12 (五)', dateLabel: '3月12日 週五', sunset: '18:35' },
+      { isoDate: '2027-03-13', shortDate: '03/13 (六)', dateLabel: '3月13日 週六', sunset: '18:35' },
+      { isoDate: '2027-03-14', shortDate: '03/14 (日)', dateLabel: '3月14日 週日', sunset: '18:04 (台北)' },
     ],
   },
 ];
