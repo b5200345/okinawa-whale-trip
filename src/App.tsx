@@ -174,6 +174,7 @@ interface MemberFlightInfo {
   groupId: string;
   memberId: string;
   memberName: string;
+  realName?: string;
   arrivalFlight: string;
   arrivalTime: string;
   departureFlight: string;
@@ -3064,6 +3065,7 @@ interface FlightInfoCardProps {
   isOpen: boolean;
   onToggle: () => void;
   onSaveFlight: (data: {
+    realName: string;
     arrivalFlight: string;
     arrivalTime: string;
     departureFlight: string;
@@ -3087,6 +3089,7 @@ function FlightInfoCard({
   const myFlightKey = myClaimedMember ? `${activeGroupId}_${myClaimedMember.id}` : '';
   const savedMine = myFlightKey ? flights[myFlightKey] : undefined;
 
+  const [realName, setRealName] = useState('');
   const [arrivalFlight, setArrivalFlight] = useState('');
   const [arrivalTime, setArrivalTime] = useState('');
   const [departureFlight, setDepartureFlight] = useState('');
@@ -3097,6 +3100,7 @@ function FlightInfoCard({
   const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
+    setRealName(savedMine?.realName || '');
     setArrivalFlight(savedMine?.arrivalFlight || '');
     setArrivalTime(savedMine?.arrivalTime || '');
     setDepartureFlight(savedMine?.departureFlight || '');
@@ -3106,6 +3110,7 @@ function FlightInfoCard({
     setFormError(null);
   }, [
     myFlightKey,
+    savedMine?.realName,
     savedMine?.arrivalFlight,
     savedMine?.arrivalTime,
     savedMine?.departureFlight,
@@ -3146,6 +3151,10 @@ function FlightInfoCard({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!myClaimedMember || isSaving) return;
+    if (!realName.trim()) {
+      setFormError('請先填寫你的姓名或綽號，方便教練辨識是哪位團員抵達。');
+      return;
+    }
     if (!arrivalFlight.trim() && !arrivalTime.trim()) {
       setFormError('請至少填寫去程航班編號或預計抵達時間。');
       return;
@@ -3154,6 +3163,7 @@ function FlightInfoCard({
     setSavedNotice(null);
     setIsSaving(true);
     const ok = await onSaveFlight({
+      realName: realName.trim(),
       arrivalFlight: normalizeFlightCode(arrivalFlight),
       arrivalTime: arrivalTime.trim(),
       departureFlight: normalizeFlightCode(departureFlight),
@@ -3162,7 +3172,7 @@ function FlightInfoCard({
     });
     setIsSaving(false);
     if (ok) {
-      setSavedNotice('已儲存航班資訊，僅帶隊教練可查看總表！');
+      setSavedNotice('已儲存姓名與航班資訊，僅帶隊教練可查看總表！');
     } else {
       setFormError('儲存失敗，請確認網路連線後再試一次。');
     }
@@ -3261,6 +3271,26 @@ function FlightInfoCard({
                   ✓ 已回報
                 </span>
               )}
+            </div>
+
+            {/* 僅教練可見的真實姓名／綽號欄位 */}
+            <div>
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <label className="text-[12px] font-bold text-[#57534e]">
+                  姓名／綽號（僅教練可見）
+                </label>
+                <span className="text-[11px] font-semibold text-[#64748b]">
+                  公開頁面仍顯示「{myClaimedMember.name}」
+                </span>
+              </div>
+              <input
+                type="text"
+                value={realName}
+                onChange={(e) => setRealName(e.target.value)}
+                placeholder="例：王小明（方便教練辨識接機與入住）"
+                maxLength={30}
+                className="min-h-10 w-full rounded-xl border border-[#e7e2d8] bg-white px-3 text-[14px] font-bold text-[#0f293a] placeholder:font-normal placeholder:text-[#9ca3af] focus:border-[#0369a1] focus:outline-none"
+              />
             </div>
 
             {/* 常用台灣→沖繩去程航班快速帶入 */}
@@ -3555,8 +3585,18 @@ function FlightInfoCard({
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-[14px] font-extrabold text-[#0f293a]">
-                        {member.emoji} {member.name}
+                      <span className="flex min-w-0 items-center gap-1.5 text-[14px] font-extrabold text-[#0f293a]">
+                        <span className="shrink-0">{member.emoji}</span>
+                        {info?.realName ? (
+                          <>
+                            <span className="truncate">{info.realName}</span>
+                            <span className="shrink-0 rounded-md bg-[#f4f0e8] px-1.5 py-0.5 text-[11px] font-bold text-[#57534e]">
+                              {member.name}
+                            </span>
+                          </>
+                        ) : (
+                          <span>{member.name}</span>
+                        )}
                       </span>
                       {info ? (
                         <span className="rounded-full bg-[#e0f2fe] px-2.5 py-0.5 text-[12px] font-extrabold text-[#0369a1]">
@@ -4837,6 +4877,7 @@ export default function App() {
   // 儲存個人航班與抵達資訊（需鎖定身分）
   const handleSaveFlight = useCallback(
     async (form: {
+      realName: string;
       arrivalFlight: string;
       arrivalTime: string;
       departureFlight: string;
@@ -4849,6 +4890,7 @@ export default function App() {
         groupId: activeGroupId,
         memberId: myClaimedMember.id,
         memberName: myClaimedMember.name,
+        realName: form.realName,
         arrivalFlight: form.arrivalFlight,
         arrivalTime: form.arrivalTime,
         departureFlight: form.departureFlight,
