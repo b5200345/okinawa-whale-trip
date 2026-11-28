@@ -3829,8 +3829,8 @@ interface WhaleBehaviorEntry {
   safetyCategory: Exclude<WhaleSafetyCategory, 'all'>;
   statusText: string;
   statusTone: 'safe' | 'caution' | 'boat';
-  imageFile?: string;
-  svgVariant?: 'fluke-dive' | 'mother-calf' | 'heat-run';
+  imageFile: string;
+  photoCredit: string;
   summary: string;
   meaning: string;
   underwaterCue: string;
@@ -3839,7 +3839,7 @@ interface WhaleBehaviorEntry {
 
 const WHALE_ASSET_BASE = `${import.meta.env.BASE_URL}src/assets/images/`;
 
-const WHALE_HERO_IMAGE = `${WHALE_ASSET_BASE}whale_hero_underwater_1795860221707.jpg`;
+const WHALE_HERO_IMAGE = `${WHALE_ASSET_BASE}whale_hero_noaa.jpg`;
 
 const WHALE_BEHAVIORS: WhaleBehaviorEntry[] = [
   {
@@ -3850,7 +3850,8 @@ const WHALE_BEHAVIORS: WhaleBehaviorEntry[] = [
     safetyCategory: 'boat',
     statusText: '船上遠觀・勿貿然下水',
     statusTone: 'boat',
-    imageFile: `${WHALE_ASSET_BASE}whale_breaching_1795860223566.jpg`,
+    imageFile: `${WHALE_ASSET_BASE}whale_breaching_noaa.jpg`,
+    photoCredit: '實景攝影：NOAA HIHWNMS（公眾領域）',
     summary: '將身體大幅（常見超過 40% 至近全身）躍出水面並在空中翻轉重擊海面，激起數公尺高浪花。',
     meaning:
       '學界對躍身的確切功能尚無單一定論，常見假說包括：水面撞擊聲可能有助於遠距離聲學聯繫、展示體型或能量、協助脫落老廢角質或體表寄生生物，或屬於幼鯨活動與探索表現。',
@@ -3867,7 +3868,8 @@ const WHALE_BEHAVIORS: WhaleBehaviorEntry[] = [
     safetyCategory: 'boat',
     statusText: '高衝擊風險・勿靠近',
     statusTone: 'boat',
-    imageFile: `${WHALE_ASSET_BASE}whale_lobtailing_1795860224005.jpg`,
+    imageFile: `${WHALE_ASSET_BASE}whale_lobtailing_wikimedia.jpg`,
+    photoCredit: '實景攝影：Giles Laurent / Wikimedia（CC BY-SA 4.0）',
     summary: '倒立或側身將寬約 4–5 公尺的尾鰭舉出水面，用力拍擊海面發出巨響。',
     meaning:
       '學界推測此行為可能與聲學訊號傳遞、社交或雄性競爭互動有關；若於船隻或泳客接近時出現，亦可能反映干擾或警戒反應（大翅鯨並非固定領地性動物，實際意涵需視情境判讀）。',
@@ -3884,7 +3886,8 @@ const WHALE_BEHAVIORS: WhaleBehaviorEntry[] = [
     safetyCategory: 'caution',
     statusText: '謹慎觀察・保持側距',
     statusTone: 'caution',
-    imageFile: `${WHALE_ASSET_BASE}whale_pec_slap_1795860224847.jpg`,
+    imageFile: `${WHALE_ASSET_BASE}whale_pec_slap_noaa.jpg`,
+    photoCredit: '實景攝影：NOAA HIHWNMS（公眾領域）',
     summary: '側躺或仰躺於海面，將可達體長約三分之一的長胸鰭高舉空中並反覆拍擊水面。',
     meaning:
       '目前多推測與近距離聲學訊號或社交互動有關，在獨行個體、求偶競爭群體或母子鯨皆曾觀察到，但確切生物學功能仍未完全定論。',
@@ -3901,7 +3904,8 @@ const WHALE_BEHAVIORS: WhaleBehaviorEntry[] = [
     safetyCategory: 'swim',
     statusText: '動作緩慢・適合靜止觀察',
     statusTone: 'safe',
-    imageFile: `${WHALE_ASSET_BASE}whale_spyhop_1795860226118.jpg`,
+    imageFile: `${WHALE_ASSET_BASE}whale_spyhop_noaa.jpg`,
+    photoCredit: '實景攝影：NOAA National Marine Sanctuaries（公眾領域）',
     summary: '身體垂直上浮，緩慢將頭部與眼睛探出水面停留數秒後，再垂直沉回水中。',
     meaning:
       '研究普遍推測可能與觀察水面周遭環境、辨識船隻或聲音來源有關；不過鯨魚的實際動機難以直接證實，仍須將其視為大型野生動物並維持安全距離。',
@@ -3918,7 +3922,8 @@ const WHALE_BEHAVIORS: WhaleBehaviorEntry[] = [
     safetyCategory: 'swim',
     statusText: '高度敏感・嚴禁下潛打擾',
     statusTone: 'safe',
-    svgVariant: 'mother-calf',
+    imageFile: `${WHALE_ASSET_BASE}whale_mother_calf_noaa.jpg`,
+    photoCredit: '實景攝影：NOAA HIHWNMS（公眾領域）',
     summary: '常見母鯨懸停於約 5–15 公尺深處休息，幼鯨多停留在母鯨胸鰭附近，每隔數分鐘（約 3–6 分鐘）自行浮上水面換氣。',
     meaning:
       '新生幼鯨閉氣能力仍在發展且需頻繁哺乳與休息；沖繩慶良間一帶冬季水溫較暖、部分珊瑚礁周圍風浪相對平緩，被認為較有利於母子鯨減少能量消耗。',
@@ -3935,7 +3940,8 @@ const WHALE_BEHAVIORS: WhaleBehaviorEntry[] = [
     safetyCategory: 'swim',
     statusText: '即將下潛・停留時間不一',
     statusTone: 'safe',
-    svgVariant: 'fluke-dive',
+    imageFile: `${WHALE_ASSET_BASE}whale_fluke_dive_noaa.jpg`,
+    photoCredit: '實景攝影：NOAA HIHWNMS（公眾領域）',
     summary: '連續數次水面換氣後，明顯高拱背部（Peduncle Arch），隨後將整個尾鰭舉出水面並以較陡角度下潛。',
     meaning:
       '通常表示這輪水面換氣結束、個體準備進行角度較陡的下潛，之後可能在水下停留數分鐘至十餘分鐘以上，實際時間依活動狀態而異。',
@@ -3952,7 +3958,8 @@ const WHALE_BEHAVIORS: WhaleBehaviorEntry[] = [
     safetyCategory: 'caution',
     statusText: '高速移動・嚴格聽從教練',
     statusTone: 'caution',
-    svgVariant: 'heat-run',
+    imageFile: `${WHALE_ASSET_BASE}whale_heat_run_noaa.png`,
+    photoCredit: '實景攝影：Ed Lyman / NOAA HIHWNMS（公眾領域）',
     summary: '數頭（有時可達 5–10 頭以上）雄鯨高速追逐一頭核心雌鯨，常伴隨頻繁噴氣、身體推擠與大量氣泡。',
     meaning:
       '冬季繁殖季常見的雄性競爭群體，多頭雄鯨彼此競逐，爭取成為緊隨核心雌鯨身旁的「主護衛鯨（Primary Escort）」。',
@@ -4062,158 +4069,18 @@ const WHALE_QUIZ_ITEMS: WhaleQuizItem[] = [
   },
 ];
 
-function WhaleBehaviorSvg({
-  variant,
-  title,
-}: {
-  variant: 'fluke-dive' | 'mother-calf' | 'heat-run';
-  title: string;
-}) {
-  return (
-    <div
-      role="img"
-      aria-label={`${title} 示意圖`}
-      className="relative flex aspect-[4/3] w-full items-center justify-center overflow-hidden bg-gradient-to-b from-[#0c4a6e] via-[#0369a1] to-[#082f49] p-4"
-    >
-      {/* 慶良間光束 */}
-      <svg
-        viewBox="0 0 320 240"
-        className="h-full w-full"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <defs>
-          <linearGradient id={`ray-${variant}`} x1="160" y1="0" x2="160" y2="210" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stopColor="#bae6fd" stopOpacity="0.34" />
-            <stop offset="100%" stopColor="#bae6fd" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        <path d="M90 0 L145 0 L190 220 L50 220 Z" fill={`url(#ray-${variant})`} />
-        <path d="M170 0 L225 0 L285 220 L165 220 Z" fill={`url(#ray-${variant})`} />
-        <path
-          d="M0 24 Q 40 16, 80 24 T 160 24 T 240 24 T 320 24"
-          stroke="#e0f2fe"
-          strokeOpacity="0.45"
-          strokeWidth="2"
-        />
-
-        {variant === 'mother-calf' && (
-          <g>
-            {/* 母鯨靜止懸停 */}
-            <path
-              d="M52 152 C 74 128, 148 122, 206 144 C 234 154, 256 150, 274 136 C 268 156, 280 168, 290 172 C 266 172, 248 166, 224 166 C 172 178, 92 178, 52 152 Z"
-              fill="#0f293a"
-              stroke="#bae6fd"
-              strokeOpacity="0.5"
-              strokeWidth="1.5"
-            />
-            {/* 母鯨白色長胸鰭 */}
-            <path
-              d="M124 160 C 138 186, 158 206, 174 204 C 166 190, 156 174, 148 160 Z"
-              fill="#e0f2fe"
-              fillOpacity="0.88"
-            />
-            {/* 小鯨上浮換氣 */}
-            <path
-              d="M142 86 C 156 72, 186 72, 206 88 C 218 96, 228 96, 238 90 C 234 100, 240 106, 246 108 C 232 108, 222 104, 210 104 C 184 108, 158 104, 142 86 Z"
-              fill="#1e3a5f"
-              stroke="#e0f2fe"
-              strokeOpacity="0.7"
-              strokeWidth="1.5"
-            />
-            {/* 上浮虛線與換氣泡泡 */}
-            <path
-              d="M174 122 C 170 112, 168 106, 168 100"
-              stroke="#bae6fd"
-              strokeWidth="1.5"
-              strokeDasharray="4 4"
-            />
-            <circle cx="152" cy="54" r="3" fill="#e0f2fe" fillOpacity="0.75" />
-            <circle cx="160" cy="42" r="2.2" fill="#e0f2fe" fillOpacity="0.65" />
-            <text x="20" y="218" fill="#e0f2fe" fontSize="11" fontWeight="700" opacity="0.9">
-              母鯨懸停休息（約 5–15m） · 幼鯨常隔數分鐘自行上浮換氣
-            </text>
-          </g>
-        )}
-
-        {variant === 'fluke-dive' && (
-          <g>
-            {/* 舉尾深潛尾鰭 */}
-            <path
-              d="M146 118 C 122 86, 86 70, 62 66 C 74 88, 92 106, 128 122 C 138 148, 146 184, 152 214 L 174 214 C 176 184, 182 150, 192 122 C 228 106, 246 88, 258 66 C 234 70, 198 86, 174 118 Z"
-              fill="#0f293a"
-              stroke="#e0f2fe"
-              strokeOpacity="0.75"
-              strokeWidth="1.5"
-            />
-            {/* 尾鰭腹面斑塊 */}
-            <path
-              d="M84 78 C 102 84, 118 96, 132 112 C 110 106, 94 94, 84 78 Z"
-              fill="#e0f2fe"
-              fillOpacity="0.82"
-            />
-            <path
-              d="M236 78 C 218 84, 202 96, 188 112 C 210 106, 226 94, 236 78 Z"
-              fill="#e0f2fe"
-              fillOpacity="0.82"
-            />
-            {/* 下潛箭頭 */}
-            <path d="M162 154 L162 196 M154 188 L162 198 L170 188" stroke="#bae6fd" strokeWidth="2" strokeLinecap="round" />
-            <text x="20" y="228" fill="#e0f2fe" fontSize="11" fontWeight="700" opacity="0.9">
-              拱背舉尾露出腹面斑紋 · 準備進行較深下潛
-            </text>
-          </g>
-        )}
-
-        {variant === 'heat-run' && (
-          <g>
-            {/* 領頭雌鯨 */}
-            <path
-              d="M188 86 C 206 72, 246 72, 276 86 C 288 92, 298 90, 306 84 C 302 94, 308 100, 312 102 C 298 102, 288 98, 276 98 C 246 104, 208 102, 188 86 Z"
-              fill="#0f293a"
-              stroke="#e0f2fe"
-              strokeOpacity="0.7"
-              strokeWidth="1.4"
-            />
-            {/* 追逐公鯨群 1 */}
-            <path
-              d="M82 126 C 104 110, 152 110, 186 126 C 200 132, 212 130, 222 122 C 218 134, 224 140, 228 144 C 212 144, 200 138, 186 138 C 150 146, 104 144, 82 126 Z"
-              fill="#0c2d48"
-              stroke="#bae6fd"
-              strokeOpacity="0.65"
-              strokeWidth="1.4"
-            />
-            {/* 追逐公鯨群 2 */}
-            <path
-              d="M28 168 C 52 152, 102 152, 138 168 C 152 174, 164 172, 174 164 C 170 176, 176 182, 180 186 C 164 186, 152 180, 138 180 C 102 188, 52 186, 28 168 Z"
-              fill="#082f49"
-              stroke="#bae6fd"
-              strokeOpacity="0.55"
-              strokeWidth="1.4"
-            />
-            {/* 高速氣泡流線 */}
-            <path d="M26 94 L160 94" stroke="#bae6fd" strokeOpacity="0.45" strokeWidth="1.5" strokeDasharray="6 6" />
-            <circle cx="170" cy="112" r="3" fill="#e0f2fe" fillOpacity="0.75" />
-            <circle cx="156" cy="106" r="2.2" fill="#e0f2fe" fillOpacity="0.65" />
-            <circle cx="122" cy="148" r="2.8" fill="#e0f2fe" fillOpacity="0.7" />
-            <text x="20" y="220" fill="#e0f2fe" fontSize="11" fontWeight="700" opacity="0.9">
-              多頭雄鯨高速競逐 · 依船長指示維持安全側距
-            </text>
-          </g>
-        )}
-      </svg>
-    </div>
-  );
-}
-
 function WhaleGuidePhoto({
   src,
   alt,
   aspectClass = 'aspect-[4/3]',
+  credit,
+  creditPosition = 'bottom',
 }: {
   src: string;
   alt: string;
   aspectClass?: string;
+  credit?: string;
+  creditPosition?: 'bottom' | 'top';
 }) {
   const [failed, setFailed] = useState(false);
 
@@ -4238,6 +4105,15 @@ function WhaleGuidePhoto({
         onError={() => setFailed(true)}
         className="h-full w-full object-cover"
       />
+      {credit && (
+        <span
+          className={`pointer-events-none absolute right-2 ${
+            creditPosition === 'top' ? 'top-2' : 'bottom-2'
+          } rounded-md bg-[#061824]/65 px-2 py-0.5 text-[10px] font-medium text-white/90 backdrop-blur-[2px]`}
+        >
+          {credit}
+        </span>
+      )}
     </div>
   );
 }
@@ -4278,8 +4154,10 @@ function WhaleGuideTab() {
       <section className="relative overflow-hidden rounded-3xl border border-[#0c4a6e]/15 bg-[#082f49] shadow-[0_8px_24px_rgba(8,47,73,0.16)]">
         <WhaleGuidePhoto
           src={WHALE_HERO_IMAGE}
-          alt="沖繩慶良間海域大翅鯨母子共游水下攝影"
+          alt="大翅鯨母子共游水下實景攝影（NOAA）"
           aspectClass="aspect-[16/10]"
+          credit="實景攝影：NOAA HIHWNMS（公眾領域）"
+          creditPosition="top"
         />
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#061824]/92 via-[#061824]/42 to-transparent" />
         <div className="absolute inset-x-0 bottom-0 p-4 text-white">
@@ -4362,15 +4240,12 @@ function WhaleGuideTab() {
                   key={item.id}
                   className="overflow-hidden rounded-3xl border border-[#e7e2d8] bg-white shadow-[0_2px_10px_rgba(12,74,110,0.05)]"
                 >
-                  {item.imageFile ? (
-                    <WhaleGuidePhoto
-                      src={item.imageFile}
-                      alt={`${item.zhName}（${item.enName}）`}
-                      aspectClass="aspect-[4/3]"
-                    />
-                  ) : item.svgVariant ? (
-                    <WhaleBehaviorSvg variant={item.svgVariant} title={item.zhName} />
-                  ) : null}
+                  <WhaleGuidePhoto
+                    src={item.imageFile}
+                    alt={`${item.zhName}（${item.enName}）`}
+                    aspectClass="aspect-[4/3]"
+                    credit={item.photoCredit}
+                  />
 
                   <div className="p-4">
                     <div className="flex items-baseline justify-between gap-2 text-[12px] font-semibold text-[#64748b]">
