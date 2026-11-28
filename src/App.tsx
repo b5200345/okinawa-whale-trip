@@ -3170,10 +3170,11 @@ function FlightInfoCard({
 
   const coachOverviewList = useMemo(() => {
     if (!isLockedCoach) return [];
-    return MEMBERS.map((m) => ({
-      member: m,
-      info: flights[`${activeGroupId}_${m.id}`] || null,
-    })).sort((a, b) => {
+    return MEMBERS.filter((m) => !m.hasCrown)
+      .map((m) => ({
+        member: m,
+        info: flights[`${activeGroupId}_${m.id}`] || null,
+      })).sort((a, b) => {
       if (a.info && !b.info) return -1;
       if (!a.info && b.info) return 1;
       if (a.info && b.info) {
@@ -3209,7 +3210,7 @@ function FlightInfoCard({
         <div className="flex shrink-0 items-center gap-1.5">
           <span className="rounded-full bg-[#f0f9ff] px-2.5 py-1 text-[11px] font-extrabold text-[#0c4a6e]">
             {isLockedCoach
-              ? `👑 ${submittedCount}/${MEMBERS.length} 已填`
+              ? `👑 ${submittedCount}/${coachOverviewList.length} 已填`
               : savedMine
               ? '✓ 已回報'
               : '🔒 僅教練可見'}
@@ -3232,7 +3233,7 @@ function FlightInfoCard({
             請先認領並鎖定你的團隊身分
           </p>
           <p className="mt-1 text-[12.5px] leading-relaxed text-[#57534e]">
-            鎖定身分後即可填寫自己的航班與抵達時間，資料僅兩位帶隊教練（潘潘、家輝）可查看總表。
+            團員鎖定身分後即可填寫自己的航班與抵達時間；兩位帶隊教練（潘潘、家輝）免填，鎖定後可直接查看團員總表。
           </p>
           <button
             type="button"
@@ -3245,7 +3246,8 @@ function FlightInfoCard({
         </div>
       ) : (
         <div className="space-y-4">
-          {/* 個人航班回報表單 */}
+          {/* 個人航班回報表單（兩位帶隊教練免填） */}
+          {!isLockedCoach && (
           <form
             onSubmit={handleSubmit}
             className="space-y-3 rounded-2xl bg-[#faf7f2] p-3.5"
@@ -3523,16 +3525,22 @@ function FlightInfoCard({
               </span>
             </button>
           </form>
+          )}
 
-          {/* 僅兩位帶隊教練（潘潘、家輝）鎖定身分後可見的全團航班總表 */}
+          {/* 僅兩位帶隊教練（潘潘、家輝）鎖定身分後可見的團員航班總表 */}
           {isLockedCoach && (
             <div className="rounded-2xl border border-[#bae6fd] bg-[#f0f9ff] p-3.5">
               <div className="mb-2.5 flex items-center justify-between gap-2">
-                <h4 className="text-[14.5px] font-extrabold text-[#0c4a6e]">
-                  👑 教練專屬：全團航班＆入住總表
-                </h4>
-                <span className="rounded-full bg-white px-2.5 py-0.5 text-[11.5px] font-extrabold text-[#0369a1] shadow-2xs">
-                  {submittedCount} / {MEMBERS.length} 已填
+                <div>
+                  <h4 className="text-[14.5px] font-extrabold text-[#0c4a6e]">
+                    👑 教練專屬：團員航班＆入住總表
+                  </h4>
+                  <p className="mt-0.5 text-[11.5px] font-semibold text-[#0369a1]/80">
+                    兩位帶隊教練免填，僅列出 {coachOverviewList.length} 位團員回報狀態
+                  </p>
+                </div>
+                <span className="shrink-0 rounded-full bg-white px-2.5 py-0.5 text-[11.5px] font-extrabold text-[#0369a1] shadow-2xs">
+                  {submittedCount} / {coachOverviewList.length} 已填
                 </span>
               </div>
 
@@ -3549,7 +3557,6 @@ function FlightInfoCard({
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[14px] font-extrabold text-[#0f293a]">
                         {member.emoji} {member.name}
-                        {member.hasCrown ? '（教練）' : ''}
                       </span>
                       {info ? (
                         <span className="rounded-full bg-[#e0f2fe] px-2.5 py-0.5 text-[12px] font-extrabold text-[#0369a1]">
