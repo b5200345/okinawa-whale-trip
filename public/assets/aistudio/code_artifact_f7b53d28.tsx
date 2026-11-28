@@ -1252,10 +1252,33 @@ function getPinLabel(place: Place): string {
   return '📍';
 }
 
+// 平滑相機緩動曲線（緩起步、平穩滑行、柔和煞車停靠）
+function easeInOutCubic(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+function easeOutCubic(t: number): number {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+// 粗略計算兩座標間距離（公里），用以動態調整飛行時間與拋物線弧度
+function approxDistanceKm(a: [number, number], b: [number, number]): number {
+  const rad = Math.PI / 180;
+  const dLat = (b[1] - a[1]) * 111.32;
+  const dLng = (b[0] - a[0]) * 111.32 * Math.cos(((a[1] + b[1]) / 2) * rad);
+  return Math.hypot(dLat, dLng);
+}
+
+interface ManagedMapMarker {
+  id: string;
+  marker: MLMarker;
+  wrapEl: HTMLButtonElement;
+}
+
 function OkinawaMapTab() {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MLMap | null>(null);
-  const markersRef = useRef<MLMarker[]>([]);
+  const markersRef = useRef<ManagedMapMarker[]>([]);
   const tourRunRef = useRef(0);
   const is3DRef = useRef(false);
   const lastTerrainRef = useRef(false);
@@ -1297,18 +1320,68 @@ function OkinawaMapTab() {
     setIsTouring(false);
   }, []);
 
-  const flyToPlace = useCallback((place: Place) => {
-    const m = mapRef.current;
-    if (!m) return;
-    m.flyTo({
-      center: place.coords,
-      zoom: place.id === 'kerama-whales' ? 11.4 : 15.2,
-      pitch: is3DRef.current ? 60 : 0,
-      bearing: is3DRef.current ? m.getBearing() : 0,
-      duration: 1400,
-      essential: true,
-    });
-  }, []);
+  const flyToPlace = useCallback(
+    (
+      place: Place,
+      options?: { tourMode?: boolean; stepIndex?: number }
+    ): Promise<void> => {
+      const m = mapRef.current;
+      if (!m) return Promise.resolve();
+
+      const cur = m.getCenter();
+      const distKm = approxDistanceKm([cur.lng, cur.lat], place.coords);
+      const isWhaleZone = place.id === 'kerama-whales';
+      const isLongOceanHop = distKm > 8 || isWhaleZone;
+
+      // 依移動距離動態計算飛行時間與縮放拋物線弧度
+      const duration = options?.tourMode
+        ? isLongOceanHop
+          ? 2300
+          : Math.round(1450 + Math.min(distKm, 6) * 110)
+        : isLongOceanHop
+        ? 1950
+        : Math.round(1150 + Math.min(distKm, 6) * 95);
+
+      const curve = isLongOceanHop ? 1.55 : 1.28;
+      const targetPitch = is3DRef.current
+        ? 60
+        : options?.tourMode
+        ? isWhaleZone
+          ? 34
+          : 26
+        : 0;
+      const targetBearing = is3DRef.current
+        ? m.getBearing()
+        : options?.tourMode
+        ? ((options.stepIndex ?? 0) % 2 === 0 ? -10 : 10)
+        : 0;
+
+      return new Promise((resolve) => {
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(fallbackTimer);
+          m.off('moveend', finish);
+          resolve();
+        };
+        const fallbackTimer = setTimeout(finish, duration + 250);
+        m.once('moveend', finish);
+
+        m.flyTo({
+          center: place.coords,
+          zoom: isWhaleZone ? 11.4 : 15.2,
+          pitch: targetPitch,
+          bearing: targetBearing,
+          curve,
+          duration,
+          easing: easeInOutCubic,
+          essential: true,
+        });
+      });
+    },
+    []
+  );
 
   const fitPlacesBounds = useCallback(
     (placesToFit: Place[], filterVal: MapFilterId = selectedFilter) => {
@@ -1328,7 +1401,11 @@ function OkinawaMapTab() {
         m.fitBounds(bounds, {
           padding: { top: 64, bottom: 56, left: 56, right: 64 },
           maxZoom,
-          duration: 700,
+          pitch: is3DRef.current ? 55 : 0,
+          bearing: 0,
+          duration: 950,
+          easing: easeInOutCubic,
+          essential: true,
         });
       }
     },
@@ -1480,7 +1557,7 @@ function OkinawaMapTab() {
     return () => {
       tourRunRef.current += 1;
       resizeObserver.disconnect();
-      markersRef.current.forEach((mk) => mk.remove());
+      markersRef.current.forEach(({ marker }) => marker.remove());
       markersRef.current = [];
       m.remove();
       mapRef.current = null;
@@ -1523,66 +1600,48 @@ function OkinawaMapTab() {
     if (!mapReady || !m) return;
     m.setTerrain(is3D ? { source: 'dem-3d', exaggeration: 1.5 } : null);
     if (lastTerrainRef.current !== is3D) {
-      m.easeTo({ pitch: is3D ? 60 : 0, duration: 800 });
+      m.easeTo({
+        pitch: is3D ? 60 : 0,
+        duration: 900,
+        easing: easeOutCubic,
+        essential: true,
+      });
     }
     lastTerrainRef.current = is3D;
   }, [mapReady, is3D]);
 
-  // 依篩選條件更新地圖標記
+  // 依篩選條件建立地圖標記（保留 DOM 節點以支援平滑選取過場動畫）
   useEffect(() => {
     const m = mapRef.current;
     if (!mapReady || !m) return;
 
-    markersRef.current.forEach((mk) => mk.remove());
+    markersRef.current.forEach(({ marker }) => marker.remove());
     markersRef.current = [];
 
     visiblePlaces.forEach((place) => {
-      const isSelected = selectedPlace?.id === place.id;
       const el = document.createElement('button');
       el.type = 'button';
+      el.className = 'map-pin-wrap';
+      el.dataset.selected = 'false';
       el.setAttribute('aria-label', place.zh);
-      el.style.cursor = 'pointer';
-      el.style.border = 'none';
-      el.style.background = 'transparent';
-      el.style.padding = '0';
+
+      const pulse = document.createElement('span');
+      pulse.className = 'map-pin-pulse';
+      pulse.style.background = place.isHotel
+        ? 'rgba(194, 65, 12, 0.35)'
+        : `${getPinColor(place)}55`;
+      el.appendChild(pulse);
 
       if (place.isHotel) {
         const badge = document.createElement('span');
+        badge.className = 'map-pin-hotel';
         badge.textContent = `🛏️ ${place.hotelBadge || '飯店'}`;
-        badge.style.cssText = [
-          'display:inline-flex',
-          'align-items:center',
-          'gap:4px',
-          'border-radius:999px',
-          'background:#ffffff',
-          'padding:4px 10px',
-          'font-size:13px',
-          'font-weight:800',
-          'color:#0c4a6e',
-          'white-space:nowrap',
-          `border:2.5px solid ${isSelected ? '#c2410c' : '#0c4a6e'}`,
-          `box-shadow:${isSelected ? '0 0 0 4px rgba(194,65,12,0.28), 0 4px 12px rgba(0,0,0,0.22)' : '0 2px 8px rgba(0,0,0,0.2)'}`,
-          `transform:scale(${isSelected ? 1.1 : 1})`,
-          'transition:transform 160ms ease',
-        ].join(';');
         el.appendChild(badge);
       } else {
         const pin = document.createElement('span');
+        pin.className = 'map-pin-dot';
+        pin.style.background = getPinColor(place);
         pin.textContent = getPinLabel(place);
-        const sizePx = isSelected ? 38 : 32;
-        pin.style.cssText = [
-          'display:grid',
-          'place-items:center',
-          `width:${sizePx}px`,
-          `height:${sizePx}px`,
-          'border-radius:999px',
-          `background:${getPinColor(place)}`,
-          'color:#ffffff',
-          'border:2.5px solid #ffffff',
-          `font-size:${isSelected ? 16 : 14}px`,
-          `box-shadow:${isSelected ? '0 0 0 4px rgba(12,74,110,0.35), 0 4px 12px rgba(0,0,0,0.26)' : '0 2px 6px rgba(0,0,0,0.25)'}`,
-          'transition:transform 160ms ease',
-        ].join(';');
         el.appendChild(pin);
       }
 
@@ -1590,18 +1649,25 @@ function OkinawaMapTab() {
         e.stopPropagation();
         stopTour();
         setSelectedPlace(place);
-        flyToPlace(place);
+        void flyToPlace(place);
       };
 
       const marker = new maplibregl.Marker({ element: el })
         .setLngLat(place.coords)
         .addTo(m);
-      if (isSelected) {
-        marker.getElement().style.zIndex = '5';
-      }
-      markersRef.current.push(marker);
+      markersRef.current.push({ id: place.id, marker, wrapEl: el });
     });
-  }, [mapReady, visiblePlaces, selectedPlace, stopTour, flyToPlace]);
+  }, [mapReady, visiblePlaces, stopTour, flyToPlace]);
+
+  // 僅切換標記的選取狀態，讓縮放、光暈與層級平滑緩動過場
+  useEffect(() => {
+    if (!mapReady) return;
+    markersRef.current.forEach(({ id, marker, wrapEl }) => {
+      const isSelected = selectedPlace?.id === id;
+      wrapEl.dataset.selected = isSelected ? 'true' : 'false';
+      marker.getElement().style.zIndex = isSelected ? '6' : '1';
+    });
+  }, [mapReady, visiblePlaces, selectedPlace]);
 
   // 切換篩選類別時自動縮放至該組地點視野
   useEffect(() => {
@@ -1630,11 +1696,15 @@ function OkinawaMapTab() {
       if (tourRunRef.current !== runId) return;
       const target = visiblePlaces[i];
       setSelectedPlace(target);
-      flyToPlace(target);
-      await new Promise((r) => setTimeout(r, 3800));
+      await flyToPlace(target, { tourMode: true, stepIndex: i });
+      if (tourRunRef.current !== runId) return;
+      // 抵達後柔和停留 1.8 秒讓團員閱讀地點資訊，再平滑起飛往下一點
+      await new Promise((r) => setTimeout(r, 1800));
     }
     if (tourRunRef.current === runId) {
       setIsTouring(false);
+      // 導覽結束後平滑拉回全覽視野
+      fitPlacesBounds(visiblePlaces, selectedFilter);
     }
   };
 
@@ -1772,7 +1842,10 @@ function OkinawaMapTab() {
 
       {/* 選中地點詳細資訊卡片 */}
       {selectedPlace && (
-        <article className="rounded-3xl border border-[#e7e2d8] bg-white p-4 shadow-[0_2px_12px_rgba(12,74,110,0.06)]">
+        <article
+          key={selectedPlace.id}
+          className="map-card-enter rounded-3xl border border-[#e7e2d8] bg-white p-4 shadow-[0_2px_12px_rgba(12,74,110,0.06)]"
+        >
           <div className="flex items-start justify-between gap-2">
             <div className="flex flex-wrap items-center gap-1.5">
               <span
