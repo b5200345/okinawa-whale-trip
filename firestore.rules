@@ -7,14 +7,16 @@ service cloud.firestore {
           'member_claims',
           'member_checklists',
           'whale_game_scores',
-          'member_avatars'
+          'member_avatars',
+          'member_flights'
         ];
       allow write: if request.auth != null
         && collectionName in [
           'member_claims',
           'member_checklists',
           'whale_game_scores',
-          'member_avatars'
+          'member_avatars',
+          'member_flights'
         ];
     }
 

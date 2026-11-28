@@ -30,6 +30,7 @@ import {
   ListChecks,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Sunset,
   CloudSun,
   Building2,
@@ -63,6 +64,10 @@ import {
   Camera,
   Play,
   Pause,
+  Plane,
+  Search,
+  BookOpen,
+  Eye,
 } from 'lucide-react';
 
 declare const __firebase_config: string | undefined;
@@ -162,6 +167,18 @@ interface GameScoreEntry {
   name: string;
   emoji: string;
   score: number;
+  updatedAt: number;
+}
+
+interface MemberFlightInfo {
+  groupId: string;
+  memberId: string;
+  memberName: string;
+  arrivalFlight: string;
+  arrivalTime: string;
+  departureFlight: string;
+  departureTime: string;
+  checkInNote: string;
   updatedAt: number;
 }
 
@@ -1864,8 +1881,12 @@ const FALLBACK_JPY_PER_TWD = 4.75; // 1 TWD ≈ 4.75 JPY (1 JPY ≈ 0.2105 TWD)
 
 function JpyCalculator({
   calcRef,
+  isOpen = true,
+  onToggle,
 }: {
   calcRef: React.RefObject<HTMLElement | null>;
+  isOpen?: boolean;
+  onToggle?: () => void;
 }) {
   const [rateJpyPerTwd, setRateJpyPerTwd] = useState(String(FALLBACK_JPY_PER_TWD));
   const [isTaxFree, setIsTaxFree] = useState(false);
@@ -2004,40 +2025,68 @@ function JpyCalculator({
       ref={calcRef}
       className="rounded-3xl border-2 border-[#0369a1]/25 bg-white p-4 shadow-[0_4px_16px_rgba(3,105,161,0.08)]"
     >
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={isOpen}
+          className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+        >
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-2xl bg-[#e0f2fe] text-[#0369a1]">
             <ArrowRightLeft className="h-5 w-5" />
           </span>
-          <div>
-            <h3 className="text-[18px] font-bold text-[#0f293a]">即時日圓換算器</h3>
-            <p className="text-[12px] font-semibold text-[#0369a1]">
+          <div className="min-w-0">
+            <h3 className="truncate text-[17.5px] font-bold text-[#0f293a]">即時日圓換算器</h3>
+            <p className="truncate text-[12px] font-semibold text-[#0369a1]">
               1 JPY ≈ {formatNumber(twdPerJpy, 4)} TWD
             </p>
           </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => fetchLiveRates(true)}
-          disabled={liveRates.status === 'loading'}
-          className="flex min-h-9 items-center gap-1.5 rounded-full border border-[#e7e2d8] bg-[#faf7f2] px-3 text-[12px] font-bold text-[#0f293a] transition active:scale-95 disabled:opacity-60"
-        >
-          <RefreshCw
-            className={`h-3.5 w-3.5 text-[#0369a1] ${
-              liveRates.status === 'loading' ? 'animate-spin' : ''
-            }`}
-          />
-          <span>
-            {liveRates.status === 'loading'
-              ? '更新中...'
-              : liveRates.status === 'live'
-              ? `即時 ${liveRates.updatedAt}`
-              : '參考即期'}
-          </span>
         </button>
+
+        <div className="flex shrink-0 items-center gap-1.5">
+          {isOpen && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                fetchLiveRates(true);
+              }}
+              disabled={liveRates.status === 'loading'}
+              className="flex min-h-8 items-center gap-1.5 rounded-full border border-[#e7e2d8] bg-[#faf7f2] px-2.5 text-[11.5px] font-bold text-[#0f293a] transition active:scale-95 disabled:opacity-60"
+            >
+              <RefreshCw
+                className={`h-3.5 w-3.5 text-[#0369a1] ${
+                  liveRates.status === 'loading' ? 'animate-spin' : ''
+                }`}
+              />
+              <span>
+                {liveRates.status === 'loading'
+                  ? '更新中...'
+                  : liveRates.status === 'live'
+                  ? `即時 ${liveRates.updatedAt}`
+                  : '參考即期'}
+              </span>
+            </button>
+          )}
+          {onToggle && (
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-label={isOpen ? '收合即時日圓換算器' : '展開即時日圓換算器'}
+              className="grid h-8 w-8 place-items-center rounded-full bg-[#f4f0e8] text-[#57534e]"
+            >
+              <ChevronDown
+                className={`h-4 w-4 transition-transform duration-200 ${
+                  isOpen ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
+          )}
+        </div>
       </div>
 
+      {isOpen && (
+        <div className="mt-3">
       {/* 含稅 / 免稅 10% 切換 */}
       <div className="mb-3 grid grid-cols-2 gap-1.5 rounded-2xl bg-[#f4f0e8] p-1">
         <button
@@ -2135,6 +2184,8 @@ function JpyCalculator({
           </button>
         ))}
       </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -2864,6 +2915,1778 @@ function AvatarCropModal({
 }
 
 // ============================================================================
+// 5.7 航班與抵達入住回報卡（需鎖定身分填寫，僅兩位帶隊教練可查看總表）
+// ============================================================================
+
+interface FlightSchedulePreset {
+  airline: string;
+  route: string;
+  time: string; // HH:mm (當地時間：去程為抵達那霸時間，回程為那霸起飛時間)
+}
+
+// 台灣（桃園 / 台中 / 高雄）及常見轉機航點直飛沖繩那霸（OKA）表定參考時刻（當地時間）
+const OKINAWA_ARRIVAL_FLIGHTS: Record<string, FlightSchedulePreset> = {
+  CI120: { airline: '華航', route: '桃園→那霸', time: '10:50' },
+  CI122: { airline: '華航', route: '桃園→那霸', time: '19:25' },
+  CI132: { airline: '華航', route: '高雄→那霸', time: '18:45' },
+  CI310: { airline: '華航', route: '台中→那霸', time: '12:40' },
+  CI312: { airline: '華航', route: '台中→那霸', time: '18:00' },
+  BR112: { airline: '長榮', route: '桃園→那霸', time: '09:15' },
+  BR186: { airline: '長榮', route: '桃園→那霸', time: '19:10' },
+  JX870: { airline: '星宇', route: '桃園→那霸', time: '14:15' },
+  JX302: { airline: '星宇', route: '台中→那霸', time: '15:25' },
+  IT230: { airline: '虎航', route: '桃園→那霸', time: '08:55' },
+  IT232: { airline: '虎航', route: '桃園→那霸', time: '20:40' },
+  IT288: { airline: '虎航', route: '高雄→那霸', time: '12:30' },
+  IT792: { airline: '虎航', route: '台中→那霸', time: '09:40' },
+  MM922: { airline: '樂桃', route: '桃園→那霸', time: '12:25' },
+  MM924: { airline: '樂桃', route: '桃園→那霸', time: '12:20' },
+  MM926: { airline: '樂桃', route: '桃園→那霸', time: '17:50' },
+  MM928: { airline: '樂桃', route: '桃園→那霸', time: '20:50' },
+  FD230: { airline: '泰亞航', route: '桃園→那霸', time: '15:55' },
+  OD882: { airline: '峇迪', route: '桃園→那霸', time: '15:35' },
+  SL390: { airline: '泰獅航', route: '高雄→那霸', time: '10:55' },
+  UO820: { airline: '香港快運', route: '香港→那霸', time: '11:25' },
+  UO826: { airline: '香港快運', route: '香港→那霸', time: '16:50' },
+  HX658: { airline: '香港航空', route: '香港→那霸', time: '14:55' },
+  HX676: { airline: '香港航空', route: '香港→那霸', time: '15:20' },
+  JL901: { airline: '日航', route: '羽田→那霸', time: '09:15' },
+  JL903: { airline: '日航', route: '羽田→那霸', time: '10:35' },
+  JL905: { airline: '日航', route: '羽田→那霸', time: '11:30' },
+  JL907: { airline: '日航', route: '羽田→那霸', time: '12:35' },
+  JL913: { airline: '日航', route: '羽田→那霸', time: '14:25' },
+  JL917: { airline: '日航', route: '羽田→那霸', time: '16:35' },
+  NH461: { airline: '全日空', route: '羽田→那霸', time: '09:05' },
+  NH463: { airline: '全日空', route: '羽田→那霸', time: '10:50' },
+  NH467: { airline: '全日空', route: '羽田→那霸', time: '12:00' },
+  NH469: { airline: '全日空', route: '羽田→那霸', time: '13:15' },
+  NH473: { airline: '全日空', route: '羽田→那霸', time: '16:05' },
+};
+
+// 沖繩那霸（OKA）返台及常見轉機航點回程起飛表定參考時刻（日本時間）
+const OKINAWA_DEPARTURE_FLIGHTS: Record<string, FlightSchedulePreset> = {
+  CI121: { airline: '華航', route: '那霸→桃園', time: '11:55' },
+  CI123: { airline: '華航', route: '那霸→桃園', time: '20:25' },
+  CI133: { airline: '華航', route: '那霸→高雄', time: '19:45' },
+  CI311: { airline: '華航', route: '那霸→台中', time: '13:40' },
+  CI313: { airline: '華航', route: '那霸→台中', time: '19:00' },
+  BR113: { airline: '長榮', route: '那霸→桃園', time: '10:15' },
+  BR185: { airline: '長榮', route: '那霸→桃園', time: '20:10' },
+  JX871: { airline: '星宇', route: '那霸→桃園', time: '15:25' },
+  JX303: { airline: '星宇', route: '那霸→台中', time: '16:25' },
+  IT231: { airline: '虎航', route: '那霸→桃園', time: '09:45' },
+  IT233: { airline: '虎航', route: '那霸→桃園', time: '21:30' },
+  IT289: { airline: '虎航', route: '那霸→高雄', time: '14:00' },
+  IT793: { airline: '虎航', route: '那霸→台中', time: '10:35' },
+  MM921: { airline: '樂桃', route: '那霸→桃園', time: '08:15' },
+  MM923: { airline: '樂桃', route: '那霸→桃園', time: '08:10' },
+  MM925: { airline: '樂桃', route: '那霸→桃園', time: '13:35' },
+  MM927: { airline: '樂桃', route: '那霸→桃園', time: '16:50' },
+  FD231: { airline: '泰亞航', route: '那霸→桃園', time: '16:55' },
+  OD883: { airline: '峇迪', route: '那霸→桃園', time: '16:30' },
+  SL391: { airline: '泰獅航', route: '那霸→高雄', time: '11:55' },
+  UO821: { airline: '香港快運', route: '那霸→香港', time: '12:15' },
+  UO827: { airline: '香港快運', route: '那霸→香港', time: '17:45' },
+  HX659: { airline: '香港航空', route: '那霸→香港', time: '15:55' },
+  HX677: { airline: '香港航空', route: '那霸→香港', time: '16:20' },
+  JL902: { airline: '日航', route: '那霸→羽田', time: '10:15' },
+  JL904: { airline: '日航', route: '那霸→羽田', time: '11:30' },
+  JL906: { airline: '日航', route: '那霸→羽田', time: '12:35' },
+  JL908: { airline: '日航', route: '那霸→羽田', time: '13:45' },
+  JL914: { airline: '日航', route: '那霸→羽田', time: '15:30' },
+  JL918: { airline: '日航', route: '那霸→羽田', time: '17:50' },
+  NH462: { airline: '全日空', route: '那霸→羽田', time: '10:05' },
+  NH464: { airline: '全日空', route: '那霸→羽田', time: '11:50' },
+  NH468: { airline: '全日空', route: '那霸→羽田', time: '13:00' },
+  NH470: { airline: '全日空', route: '那霸→羽田', time: '14:25' },
+  NH474: { airline: '全日空', route: '那霸→羽田', time: '17:15' },
+};
+
+const QUICK_ARRIVAL_CODES = [
+  'IT230',
+  'BR112',
+  'CI120',
+  'MM922',
+  'JX870',
+  'FD230',
+  'CI122',
+  'BR186',
+  'IT288',
+  'CI132',
+];
+
+const QUICK_DEPARTURE_CODES = [
+  'IT231',
+  'BR113',
+  'CI121',
+  'MM925',
+  'JX871',
+  'MM927',
+  'FD231',
+  'BR185',
+  'CI123',
+  'IT289',
+  'CI133',
+];
+
+function normalizeFlightCode(raw: string): string {
+  return raw.replace(/[\s-]+/g, '').toUpperCase();
+}
+
+function searchLocalFlights(
+  table: Record<string, FlightSchedulePreset>,
+  rawQuery: string
+): Array<{ code: string; preset: FlightSchedulePreset }> {
+  const q = rawQuery.trim();
+  if (!q) return [];
+  const norm = normalizeFlightCode(q);
+  const lower = q.toLowerCase();
+  if (table[norm]) return [];
+
+  return Object.entries(table)
+    .filter(([code, preset]) => {
+      return (
+        code.includes(norm) ||
+        preset.airline.toLowerCase().includes(lower) ||
+        preset.route.toLowerCase().includes(lower)
+      );
+    })
+    .slice(0, 6)
+    .map(([code, preset]) => ({ code, preset }));
+}
+
+interface FlightInfoCardProps {
+  activeGroup: TripGroup;
+  activeGroupId: string;
+  myClaimedMember: Member | null;
+  isLockedCoach: boolean;
+  flights: Record<string, MemberFlightInfo>;
+  isOpen: boolean;
+  onToggle: () => void;
+  onSaveFlight: (data: {
+    arrivalFlight: string;
+    arrivalTime: string;
+    departureFlight: string;
+    departureTime: string;
+    checkInNote: string;
+  }) => Promise<boolean>;
+  onOpenClaimModal: () => void;
+}
+
+function FlightInfoCard({
+  activeGroup,
+  activeGroupId,
+  myClaimedMember,
+  isLockedCoach,
+  flights,
+  isOpen,
+  onToggle,
+  onSaveFlight,
+  onOpenClaimModal,
+}: FlightInfoCardProps) {
+  const myFlightKey = myClaimedMember ? `${activeGroupId}_${myClaimedMember.id}` : '';
+  const savedMine = myFlightKey ? flights[myFlightKey] : undefined;
+
+  const [arrivalFlight, setArrivalFlight] = useState('');
+  const [arrivalTime, setArrivalTime] = useState('');
+  const [departureFlight, setDepartureFlight] = useState('');
+  const [departureTime, setDepartureTime] = useState('');
+  const [checkInNote, setCheckInNote] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [savedNotice, setSavedNotice] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setArrivalFlight(savedMine?.arrivalFlight || '');
+    setArrivalTime(savedMine?.arrivalTime || '');
+    setDepartureFlight(savedMine?.departureFlight || '');
+    setDepartureTime(savedMine?.departureTime || '');
+    setCheckInNote(savedMine?.checkInNote || '');
+    setSavedNotice(null);
+    setFormError(null);
+  }, [
+    myFlightKey,
+    savedMine?.arrivalFlight,
+    savedMine?.arrivalTime,
+    savedMine?.departureFlight,
+    savedMine?.departureTime,
+    savedMine?.checkInNote,
+  ]);
+
+  const normalizedArrival = normalizeFlightCode(arrivalFlight);
+  const normalizedDeparture = normalizeFlightCode(departureFlight);
+  const matchedArrival = OKINAWA_ARRIVAL_FLIGHTS[normalizedArrival] || null;
+  const matchedDeparture = OKINAWA_DEPARTURE_FLIGHTS[normalizedDeparture] || null;
+
+  const arrivalSuggestions = useMemo(
+    () => searchLocalFlights(OKINAWA_ARRIVAL_FLIGHTS, arrivalFlight),
+    [arrivalFlight]
+  );
+  const departureSuggestions = useMemo(
+    () => searchLocalFlights(OKINAWA_DEPARTURE_FLIGHTS, departureFlight),
+    [departureFlight]
+  );
+
+  const handleArrivalFlightChange = (val: string) => {
+    setArrivalFlight(val);
+    const preset = OKINAWA_ARRIVAL_FLIGHTS[normalizeFlightCode(val)];
+    if (preset) {
+      setArrivalTime(preset.time);
+    }
+  };
+
+  const handleDepartureFlightChange = (val: string) => {
+    setDepartureFlight(val);
+    const preset = OKINAWA_DEPARTURE_FLIGHTS[normalizeFlightCode(val)];
+    if (preset) {
+      setDepartureTime(preset.time);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!myClaimedMember || isSaving) return;
+    if (!arrivalFlight.trim() && !arrivalTime.trim()) {
+      setFormError('請至少填寫去程航班編號或預計抵達時間。');
+      return;
+    }
+    setFormError(null);
+    setSavedNotice(null);
+    setIsSaving(true);
+    const ok = await onSaveFlight({
+      arrivalFlight: normalizeFlightCode(arrivalFlight),
+      arrivalTime: arrivalTime.trim(),
+      departureFlight: normalizeFlightCode(departureFlight),
+      departureTime: departureTime.trim(),
+      checkInNote: checkInNote.trim(),
+    });
+    setIsSaving(false);
+    if (ok) {
+      setSavedNotice('已儲存航班資訊，僅帶隊教練可查看總表！');
+    } else {
+      setFormError('儲存失敗，請確認網路連線後再試一次。');
+    }
+  };
+
+  const coachOverviewList = useMemo(() => {
+    if (!isLockedCoach) return [];
+    return MEMBERS.map((m) => ({
+      member: m,
+      info: flights[`${activeGroupId}_${m.id}`] || null,
+    })).sort((a, b) => {
+      if (a.info && !b.info) return -1;
+      if (!a.info && b.info) return 1;
+      if (a.info && b.info) {
+        const ta = a.info.arrivalTime || '99:99';
+        const tb = b.info.arrivalTime || '99:99';
+        return ta.localeCompare(tb);
+      }
+      return 0;
+    });
+  }, [isLockedCoach, flights, activeGroupId]);
+
+  const submittedCount = coachOverviewList.filter((item) => item.info).length;
+
+  return (
+    <section className="rounded-3xl border border-[#bae6fd] bg-white p-4 shadow-[0_2px_10px_rgba(3,105,161,0.08)]">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={isOpen}
+        className="flex w-full items-center justify-between gap-2 text-left"
+      >
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-2xl bg-[#e0f2fe] text-[#0369a1]">
+            <Plane className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <h3 className="truncate text-[17.5px] font-bold text-[#0f293a]">航班與抵達資訊</h3>
+            <p className="truncate text-[12px] font-semibold text-[#0369a1]">
+              {activeGroup.label}（{activeGroup.dateRange}）· 供教練安排接機與入住
+            </p>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <span className="rounded-full bg-[#f0f9ff] px-2.5 py-1 text-[11px] font-extrabold text-[#0c4a6e]">
+            {isLockedCoach
+              ? `👑 ${submittedCount}/${MEMBERS.length} 已填`
+              : savedMine
+              ? '✓ 已回報'
+              : '🔒 僅教練可見'}
+          </span>
+          <span className="grid h-8 w-8 place-items-center rounded-full bg-[#f4f0e8] text-[#57534e]">
+            <ChevronDown
+              className={`h-4 w-4 transition-transform duration-200 ${
+                isOpen ? 'rotate-180' : ''
+              }`}
+            />
+          </span>
+        </div>
+      </button>
+
+      {isOpen && (
+        <div className="mt-3">
+      {!myClaimedMember ? (
+        <div className="rounded-2xl border border-dashed border-[#bae6fd] bg-[#f0f9ff]/70 p-4 text-center">
+          <p className="text-[14px] font-bold text-[#0c4a6e]">
+            請先認領並鎖定你的團隊身分
+          </p>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-[#57534e]">
+            鎖定身分後即可填寫自己的航班與抵達時間，資料僅兩位帶隊教練（潘潘、家輝）可查看總表。
+          </p>
+          <button
+            type="button"
+            onClick={onOpenClaimModal}
+            className="mt-3 inline-flex min-h-10 items-center justify-center gap-1.5 rounded-full bg-[#0369a1] px-5 text-[13.5px] font-extrabold text-white shadow-xs transition active:scale-95"
+          >
+            <Lock className="h-4 w-4" />
+            <span>前往認領並鎖定身分</span>
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {/* 個人航班回報表單 */}
+          <form
+            onSubmit={handleSubmit}
+            className="space-y-3 rounded-2xl bg-[#faf7f2] p-3.5"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[13.5px] font-extrabold text-[#0f293a]">
+                {myClaimedMember.emoji} 我的航班回報（{myClaimedMember.name}）
+              </span>
+              {savedMine && (
+                <span className="rounded-full bg-[#dcfce7] px-2.5 py-0.5 text-[11px] font-extrabold text-[#15803d]">
+                  ✓ 已回報
+                </span>
+              )}
+            </div>
+
+            {/* 常用台灣→沖繩去程航班快速帶入 */}
+            <div>
+              <p className="mb-1.5 text-[11.5px] font-bold text-[#64748b]">
+                點選常見去程班機，或直接輸入編號／航空公司即時搜尋帶入時間：
+              </p>
+              <div className="flex gap-1.5 overflow-x-auto pb-1">
+                {QUICK_ARRIVAL_CODES.map((code) => {
+                  const item = OKINAWA_ARRIVAL_FLIGHTS[code];
+                  const active = normalizedArrival === code;
+                  return (
+                    <button
+                      key={code}
+                      type="button"
+                      onClick={() => handleArrivalFlightChange(code)}
+                      className={`shrink-0 rounded-full border px-2.5 py-1 text-[11.5px] font-extrabold transition active:scale-95 ${
+                        active
+                          ? 'border-[#0369a1] bg-[#0369a1] text-white'
+                          : 'border-[#e2e8f0] bg-white text-[#0f293a]'
+                      }`}
+                    >
+                      {code} · {item.time}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <label className="mb-1 block text-[12px] font-bold text-[#57534e]">
+                  去程航班編號
+                </label>
+                <div className="relative flex items-center">
+                  <input
+                    type="text"
+                    value={arrivalFlight}
+                    onChange={(e) => handleArrivalFlightChange(e.target.value)}
+                    placeholder="輸入 CI120 / 星宇 / 羽田"
+                    maxLength={20}
+                    className="min-h-10 w-full rounded-xl border border-[#e7e2d8] bg-white pl-3 pr-9 text-[14px] font-bold text-[#0f293a] placeholder:font-normal placeholder:text-[#9ca3af] focus:border-[#0369a1] focus:outline-none"
+                  />
+                  {normalizedArrival ? (
+                    <a
+                      href={`https://www.google.com/search?q=${encodeURIComponent(
+                        `${normalizedArrival} 航班時間`
+                      )}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="在 Google 查詢此去程航班時刻"
+                      aria-label="在 Google 查詢去程航班時刻"
+                      className="absolute right-1.5 grid h-7 w-7 place-items-center rounded-lg bg-[#f0f9ff] text-[#0369a1] transition active:scale-95"
+                    >
+                      <Search className="h-3.5 w-3.5" />
+                    </a>
+                  ) : (
+                    <span className="pointer-events-none absolute right-2.5 text-[#9ca3af]">
+                      <Search className="h-3.5 w-3.5" />
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-[12px] font-bold text-[#57534e]">
+                  預計抵達那霸時間
+                </label>
+                <input
+                  type="time"
+                  value={arrivalTime}
+                  onChange={(e) => setArrivalTime(e.target.value)}
+                  className="min-h-10 w-full rounded-xl border border-[#e7e2d8] bg-white px-3 text-[14px] font-bold text-[#0f293a] focus:border-[#0369a1] focus:outline-none"
+                />
+              </div>
+            </div>
+
+            {arrivalSuggestions.length > 0 && (
+              <div className="-mt-1 flex flex-wrap gap-1.5">
+                {arrivalSuggestions.map(({ code, preset }) => (
+                  <button
+                    key={code}
+                    type="button"
+                    onClick={() => handleArrivalFlightChange(code)}
+                    className="rounded-full border border-[#bae6fd] bg-[#f0f9ff] px-2.5 py-1 text-[11.5px] font-extrabold text-[#0c4a6e] transition active:scale-95"
+                  >
+                    {code} {preset.airline}（{preset.route} {preset.time}）
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {matchedArrival ? (
+              <p className="-mt-1.5 text-[11.5px] font-bold text-[#0369a1]">
+                ✓ {matchedArrival.airline} {matchedArrival.route}・已自動帶入表定 {matchedArrival.time} 抵達（若機票有季調可直接微調）
+              </p>
+            ) : (
+              normalizedArrival.length >= 3 &&
+              arrivalSuggestions.length === 0 && (
+                <div className="-mt-1.5 flex flex-wrap items-center justify-between gap-1 text-[11.5px] font-semibold text-[#64748b]">
+                  <span>非內建常用班機，可核對後直接手動填寫時間</span>
+                  <a
+                    href={`https://www.google.com/search?q=${encodeURIComponent(
+                      `${normalizedArrival} 航班時間`
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-0.5 font-extrabold text-[#0369a1] underline"
+                  >
+                    <span>Google 查 {normalizedArrival}</span>
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                </div>
+              )
+            )}
+
+            {/* 常用沖繩→台灣回程航班快速帶入 */}
+            <div>
+              <p className="mb-1.5 text-[11.5px] font-bold text-[#64748b]">
+                點選常見回程班機，或直接輸入編號／航空公司即時搜尋帶入起飛時間：
+              </p>
+              <div className="flex gap-1.5 overflow-x-auto pb-1">
+                {QUICK_DEPARTURE_CODES.map((code) => {
+                  const item = OKINAWA_DEPARTURE_FLIGHTS[code];
+                  const active = normalizedDeparture === code;
+                  return (
+                    <button
+                      key={code}
+                      type="button"
+                      onClick={() => handleDepartureFlightChange(code)}
+                      className={`shrink-0 rounded-full border px-2.5 py-1 text-[11.5px] font-extrabold transition active:scale-95 ${
+                        active
+                          ? 'border-[#0369a1] bg-[#0369a1] text-white'
+                          : 'border-[#e2e8f0] bg-white text-[#0f293a]'
+                      }`}
+                    >
+                      {code} · {item.time}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <label className="mb-1 block text-[12px] font-bold text-[#57534e]">
+                  回程航班（選填）
+                </label>
+                <div className="relative flex items-center">
+                  <input
+                    type="text"
+                    value={departureFlight}
+                    onChange={(e) => handleDepartureFlightChange(e.target.value)}
+                    placeholder="輸入 CI121 / 星宇 / 高雄"
+                    maxLength={20}
+                    className="min-h-10 w-full rounded-xl border border-[#e7e2d8] bg-white pl-3 pr-9 text-[14px] font-bold text-[#0f293a] placeholder:font-normal placeholder:text-[#9ca3af] focus:border-[#0369a1] focus:outline-none"
+                  />
+                  {normalizedDeparture ? (
+                    <a
+                      href={`https://www.google.com/search?q=${encodeURIComponent(
+                        `${normalizedDeparture} 航班時間`
+                      )}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="在 Google 查詢此回程航班時刻"
+                      aria-label="在 Google 查詢回程航班時刻"
+                      className="absolute right-1.5 grid h-7 w-7 place-items-center rounded-lg bg-[#f0f9ff] text-[#0369a1] transition active:scale-95"
+                    >
+                      <Search className="h-3.5 w-3.5" />
+                    </a>
+                  ) : (
+                    <span className="pointer-events-none absolute right-2.5 text-[#9ca3af]">
+                      <Search className="h-3.5 w-3.5" />
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-[12px] font-bold text-[#57534e]">
+                  回程起飛（選填）
+                </label>
+                <input
+                  type="time"
+                  value={departureTime}
+                  onChange={(e) => setDepartureTime(e.target.value)}
+                  className="min-h-10 w-full rounded-xl border border-[#e7e2d8] bg-white px-3 text-[14px] font-bold text-[#0f293a] focus:border-[#0369a1] focus:outline-none"
+                />
+              </div>
+            </div>
+
+            {departureSuggestions.length > 0 && (
+              <div className="-mt-1 flex flex-wrap gap-1.5">
+                {departureSuggestions.map(({ code, preset }) => (
+                  <button
+                    key={code}
+                    type="button"
+                    onClick={() => handleDepartureFlightChange(code)}
+                    className="rounded-full border border-[#bae6fd] bg-[#f0f9ff] px-2.5 py-1 text-[11.5px] font-extrabold text-[#0c4a6e] transition active:scale-95"
+                  >
+                    {code} {preset.airline}（{preset.route} {preset.time}）
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {matchedDeparture ? (
+              <p className="-mt-1.5 text-[11.5px] font-bold text-[#0369a1]">
+                ✓ {matchedDeparture.airline} {matchedDeparture.route}・已自動帶入表定 {matchedDeparture.time} 起飛（可依機票微調）
+              </p>
+            ) : (
+              normalizedDeparture.length >= 3 &&
+              departureSuggestions.length === 0 && (
+                <div className="-mt-1.5 flex flex-wrap items-center justify-between gap-1 text-[11.5px] font-semibold text-[#64748b]">
+                  <span>非內建常用班機，可核對後直接手動填寫時間</span>
+                  <a
+                    href={`https://www.google.com/search?q=${encodeURIComponent(
+                      `${normalizedDeparture} 航班時間`
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-0.5 font-extrabold text-[#0369a1] underline"
+                  >
+                    <span>Google 查 {normalizedDeparture}</span>
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                </div>
+              )
+            )}
+
+            <div>
+              <label className="mb-1 block text-[12px] font-bold text-[#57534e]">
+                到飯店時間／入住備註（選填）
+              </label>
+              <input
+                type="text"
+                value={checkInNote}
+                onChange={(e) => setCheckInNote(e.target.value)}
+                placeholder="例：約 14:30 到飯店大廳、先寄放行李再去國際通"
+                maxLength={100}
+                className="min-h-10 w-full rounded-xl border border-[#e7e2d8] bg-white px-3 text-[13.5px] font-semibold text-[#0f293a] placeholder:font-normal placeholder:text-[#9ca3af] focus:border-[#0369a1] focus:outline-none"
+              />
+            </div>
+
+            {formError && (
+              <p className="text-[12.5px] font-bold text-[#b91c1c]">⚠️ {formError}</p>
+            )}
+            {savedNotice && (
+              <p className="text-[12.5px] font-bold text-[#15803d]">✓ {savedNotice}</p>
+            )}
+
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-2xl bg-[#0369a1] text-[14px] font-extrabold text-white shadow-xs transition active:scale-95 disabled:opacity-50"
+            >
+              <Plane className="h-4 w-4" />
+              <span>
+                {isSaving
+                  ? '儲存中...'
+                  : savedMine
+                  ? '更新我的航班資訊'
+                  : '儲存並送出給教練'}
+              </span>
+            </button>
+          </form>
+
+          {/* 僅兩位帶隊教練（潘潘、家輝）鎖定身分後可見的全團航班總表 */}
+          {isLockedCoach && (
+            <div className="rounded-2xl border border-[#bae6fd] bg-[#f0f9ff] p-3.5">
+              <div className="mb-2.5 flex items-center justify-between gap-2">
+                <h4 className="text-[14.5px] font-extrabold text-[#0c4a6e]">
+                  👑 教練專屬：全團航班＆入住總表
+                </h4>
+                <span className="rounded-full bg-white px-2.5 py-0.5 text-[11.5px] font-extrabold text-[#0369a1] shadow-2xs">
+                  {submittedCount} / {MEMBERS.length} 已填
+                </span>
+              </div>
+
+              <div className="space-y-2">
+                {coachOverviewList.map(({ member, info }) => (
+                  <div
+                    key={member.id}
+                    className={`rounded-2xl border p-3 ${
+                      info
+                        ? 'border-[#bae6fd] bg-white'
+                        : 'border-dashed border-[#d6d3d1] bg-white/60'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[14px] font-extrabold text-[#0f293a]">
+                        {member.emoji} {member.name}
+                        {member.hasCrown ? '（教練）' : ''}
+                      </span>
+                      {info ? (
+                        <span className="rounded-full bg-[#e0f2fe] px-2.5 py-0.5 text-[12px] font-extrabold text-[#0369a1]">
+                          {info.arrivalTime ? `抵達 ${info.arrivalTime}` : '已填航班'}
+                        </span>
+                      ) : (
+                        <span className="text-[12px] font-semibold text-[#9ca3af]">
+                          尚未填寫
+                        </span>
+                      )}
+                    </div>
+
+                    {info && (
+                      <div className="mt-1.5 space-y-1 text-[13px] text-[#334155]">
+                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 font-semibold">
+                          <span>
+                            ✈️ 去程：
+                            <strong className="text-[#0f293a]">
+                              {info.arrivalFlight || '未填'}
+                            </strong>
+                            {info.arrivalTime ? `（${info.arrivalTime}）` : ''}
+                          </span>
+                          {(info.departureFlight || info.departureTime) && (
+                            <span>
+                              🛫 回程：
+                              <strong className="text-[#0f293a]">
+                                {info.departureFlight || '未填'}
+                              </strong>
+                              {info.departureTime ? `（${info.departureTime}）` : ''}
+                            </span>
+                          )}
+                        </div>
+                        {info.checkInNote && (
+                          <p className="rounded-xl bg-[#faf7f2] px-2.5 py-1.5 text-[12.5px] font-medium text-[#57534e]">
+                            📝 {info.checkInNote}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ============================================================================
+// 5.8 Visit Japan Web 住宿資訊一鍵複製卡
+// ============================================================================
+
+const VISIT_JAPAN_WEB_FIELDS: {
+  id: string;
+  label: string;
+  value: string;
+  display?: string;
+  hint?: string;
+}[] = [
+  {
+    id: 'vjw-zip',
+    label: '郵遞區號（輸入後點「自動輸入」）',
+    value: '9000015',
+    display: '900-0015（複製純數字 9000015）',
+  },
+  {
+    id: 'vjw-hotel-en',
+    label: '飯店名稱（英文）',
+    value: 'Almont Hotel Naha Kenchomae',
+  },
+  {
+    id: 'vjw-hotel-ja',
+    label: '飯店名稱（日文）',
+    value: 'アルモントホテル那覇県庁前',
+  },
+  {
+    id: 'vjw-addr-en',
+    label: '住宿地址（英文）',
+    value: '1-3-5 Kumoji, Naha-shi, Okinawa',
+  },
+  {
+    id: 'vjw-addr-ja',
+    label: '門牌與飯店（日文後續地址）',
+    value: '1-3-5 アルモントホテル那覇県庁前',
+    hint: '自動帶出「沖縄県 那覇市 久茂地」後直接貼這段',
+  },
+  {
+    id: 'vjw-phone',
+    label: '日本聯絡電話（純數字）',
+    value: '0988663811',
+    display: '098-866-3811（複製 0988663811）',
+  },
+];
+
+function VisitJapanWebCopyBox() {
+  const [copiedFieldId, setCopiedFieldId] = useState<string | null>(null);
+
+  const handleCopy = (id: string, text: string) => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text);
+      }
+      setCopiedFieldId(id);
+      setTimeout(() => setCopiedFieldId((cur) => (cur === id ? null : cur)), 1800);
+    } catch {
+      // 忽略剪貼簿權限錯誤
+    }
+  };
+
+  return (
+    <div className="mb-3 rounded-2xl border border-[#bfdbfe] bg-[#f8fbff] p-3.5">
+      <div className="mb-2.5 flex items-center justify-between gap-2">
+        <h4 className="text-[14px] font-extrabold text-[#1e3a8a]">
+          📋 VJW 住宿填寫資料（點一下快速複製）
+        </h4>
+        <span className="rounded-full bg-[#dbeafe] px-2 py-0.5 text-[11px] font-bold text-[#1d4ed8]">
+          那霸 OKA
+        </span>
+      </div>
+
+      <div className="space-y-2">
+        {VISIT_JAPAN_WEB_FIELDS.map((field) => {
+          const isCopied = copiedFieldId === field.id;
+          return (
+            <div
+              key={field.id}
+              className="flex items-center justify-between gap-2 rounded-xl border border-[#e2e8f0] bg-white px-3 py-2"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="text-[11.5px] font-bold text-[#64748b]">{field.label}</p>
+                <p className="mt-0.5 break-all text-[13.5px] font-extrabold text-[#0f293a]">
+                  {field.display || field.value}
+                </p>
+                {field.hint && (
+                  <p className="mt-0.5 text-[11px] font-medium text-[#0369a1]">
+                    {field.hint}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => handleCopy(field.id, field.value)}
+                className={`flex min-h-9 shrink-0 items-center gap-1 rounded-xl px-3 text-[12px] font-extrabold transition active:scale-95 ${
+                  isCopied
+                    ? 'bg-[#dcfce7] text-[#15803d]'
+                    : 'bg-[#eff6ff] text-[#1d4ed8]'
+                }`}
+              >
+                {isCopied ? (
+                  <>
+                    <Check className="h-3.5 w-3.5" />
+                    <span>已複製</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3.5 w-3.5" />
+                    <span>複製</span>
+                  </>
+                )}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="mt-2.5 text-[12px] font-semibold leading-relaxed text-[#1e40af]">
+        💡 填寫提示：入境目的選「觀光」、預計停留填 <strong>4 天</strong>、入境機場選{' '}
+        <strong>那霸（OKA）</strong>；完成後請務必把 QR Code 截圖存手機相簿！
+      </p>
+    </div>
+  );
+}
+
+// ============================================================================
+// 5.9 美食與資料頁簽：可收折區塊外框 (CollapsibleInfoSection)
+// ============================================================================
+
+type InfoSectionKey =
+  | 'calc'
+  | 'flight'
+  | 'line'
+  | 'rental'
+  | 'hotel'
+  | 'food'
+  | 'market'
+  | 'vjw';
+
+interface CollapsibleInfoSectionProps {
+  title: string;
+  subtitle?: string;
+  subtitleClass?: string;
+  icon: React.ReactNode;
+  iconBgClass: string;
+  borderClass?: string;
+  shadowClass?: string;
+  badge?: React.ReactNode;
+  isOpen: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}
+
+function CollapsibleInfoSection({
+  title,
+  subtitle,
+  subtitleClass = 'text-[#6b7280]',
+  icon,
+  iconBgClass,
+  borderClass = 'border-[#e7e2d8]',
+  shadowClass = 'shadow-[0_2px_10px_rgba(12,74,110,0.04)]',
+  badge,
+  isOpen,
+  onToggle,
+  children,
+}: CollapsibleInfoSectionProps) {
+  return (
+    <section className={`rounded-3xl border bg-white p-4 ${borderClass} ${shadowClass}`}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={isOpen}
+        className="flex w-full items-center justify-between gap-2 text-left"
+      >
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span
+            className={`grid h-9 w-9 shrink-0 place-items-center rounded-2xl ${iconBgClass}`}
+          >
+            {icon}
+          </span>
+          <div className="min-w-0">
+            <h3 className="truncate text-[17.5px] font-bold text-[#0f293a]">{title}</h3>
+            {subtitle && (
+              <p className={`truncate text-[12px] font-semibold ${subtitleClass}`}>
+                {subtitle}
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {badge}
+          <span className="grid h-8 w-8 place-items-center rounded-full bg-[#f4f0e8] text-[#57534e]">
+            <ChevronDown
+              className={`h-4 w-4 transition-transform duration-200 ${
+                isOpen ? 'rotate-180' : ''
+              }`}
+            />
+          </span>
+        </div>
+      </button>
+      {isOpen && <div className="mt-3">{children}</div>}
+    </section>
+  );
+}
+
+// ============================================================================
+// 5.10 大翅鯨圖鑑 (WhaleGuideTab - 生態、行為辨識、觀察禮儀與狀態測驗)
+// ============================================================================
+
+type WhaleGuideSection = 'behaviors' | 'biology' | 'etiquette' | 'quiz';
+type WhaleSafetyCategory = 'all' | 'swim' | 'caution' | 'boat';
+
+interface WhaleBehaviorEntry {
+  id: string;
+  zhName: string;
+  enName: string;
+  zoneLabel: string;
+  safetyCategory: Exclude<WhaleSafetyCategory, 'all'>;
+  statusText: string;
+  statusTone: 'safe' | 'caution' | 'boat';
+  imageFile?: string;
+  svgVariant?: 'fluke-dive' | 'mother-calf' | 'heat-run';
+  summary: string;
+  meaning: string;
+  underwaterCue: string;
+  photoTip: string;
+}
+
+const WHALE_ASSET_BASE = `${import.meta.env.BASE_URL}src/assets/images/`;
+
+const WHALE_HERO_IMAGE = `${WHALE_ASSET_BASE}whale_hero_underwater_1795860221707.jpg`;
+
+const WHALE_BEHAVIORS: WhaleBehaviorEntry[] = [
+  {
+    id: 'breaching',
+    zhName: '躍身擊浪',
+    enName: 'Breaching',
+    zoneLabel: '水面高能量展示',
+    safetyCategory: 'boat',
+    statusText: '船上遠觀・勿貿然下水',
+    statusTone: 'boat',
+    imageFile: `${WHALE_ASSET_BASE}whale_breaching_1795860223566.jpg`,
+    summary: '將超過 40% 至全身躍出水面並在空中翻轉重擊海面，激起數公尺高白浪。',
+    meaning:
+      '常見於遠距離聲學溝通（擊水聲可在水下傳播數公里）、展示體力吸引異性、清除體表藤壺寄生蟲，或幼鯨練習肌肉力量。',
+    underwaterCue:
+      '能量極高且落水衝擊力達數十噸；若水下看到鯨魚突然加速垂直上衝，表示即將躍出水面，應立即拉開水平距離。',
+    photoTip:
+      '以船上拍攝最安全壯觀：快門拉高至 1/1600s 以上並開啟連拍；多數大翅鯨會連續躍身 2–4 次，第一跳後請保持鏡頭對準同一海域。',
+  },
+  {
+    id: 'lobtailing',
+    zhName: '鯨尾擊浪',
+    enName: 'Lobtailing / Tail Slap',
+    zoneLabel: '水面警示與溝通',
+    safetyCategory: 'boat',
+    statusText: '警戒訊號・勿靠近',
+    statusTone: 'boat',
+    imageFile: `${WHALE_ASSET_BASE}whale_lobtailing_1795860224005.jpg`,
+    summary: '倒立或側身將寬達 4–5 公尺的巨大尾鰭高舉出水面，用力拍擊海面發出雷鳴巨響。',
+    meaning:
+      '常代表情緒高漲、領地宣示、警告競爭對手，或是對過於靠近的船隻與泳客表達不耐與驅離訊號。',
+    underwaterCue:
+      '若原本平靜的鯨魚突然連續甩尾、猛拍尾柄或朝人群方向噴出氣泡幕，代表已產生壓力，必須立刻停止靠近並依教練手勢撤回船邊。',
+    photoTip:
+      '船上拍攝可清楚記錄尾鰭腹面獨一無二的黑白「指紋」斑紋；水下切勿停留在鯨尾後方 15 公尺內的尾流擺動範圍。',
+  },
+  {
+    id: 'pec-slap',
+    zhName: '胸鰭拍水',
+    enName: 'Pectoral Fin Slap',
+    zoneLabel: '水面互動與示好',
+    safetyCategory: 'caution',
+    statusText: '謹慎觀察・保持側距',
+    statusTone: 'caution',
+    imageFile: `${WHALE_ASSET_BASE}whale_pec_slap_1795860224847.jpg`,
+    summary: '側躺或仰躺於海面，將長達體長三分之一的白色長胸鰭高舉空中並重複拍擊水面。',
+    meaning:
+      '常用於近距離社交溝通、吸引周邊其他大翅鯨注意，或母鯨與小鯨在放鬆遊戲時的互動行為。',
+    underwaterCue:
+      '代表個體處於活躍社交狀態，動作幅度大但多半停留原地；須待船長確認無其他高速靠近的追逐公鯨後，再由側前方緩慢入水觀察。',
+    photoTip:
+      '水下拍攝可利用廣角由側面捕捉白色長胸鰭與陽光水波的對比，避免游到胸鰭拍擊正下方或正上方。',
+  },
+  {
+    id: 'spyhopping',
+    zhName: '浮窺觀察',
+    enName: 'Spyhopping',
+    zoneLabel: '主動好奇探頭',
+    safetyCategory: 'swim',
+    statusText: '好奇友善・適合靜止拍攝',
+    statusTone: 'safe',
+    imageFile: `${WHALE_ASSET_BASE}whale_spyhop_1795860226118.jpg`,
+    summary: '身體垂直上浮，緩慢將頭部與眼睛探出水面環顧四周數秒後，再優雅垂直滑回水中。',
+    meaning:
+      '大翅鯨對船隻或水面觀察者產生好奇，主動確認周遭環境與聲音來源，通常情緒相對穩定。',
+    underwaterCue:
+      '水下若見鯨魚放慢速度、轉頭側眼直視泳客並緩緩靠近，代表牠正在觀察你；此時越保持靜止不動，鯨魚停留時間越長。',
+    photoTip:
+      '雙手穩住相機、停止踢蛙鞋並輕柔呼吸，用廣角鏡預留周圍藍水空間，很容易拍到極具張力的「鯨眼對視」畫面。',
+  },
+  {
+    id: 'mother-calf',
+    zhName: '母子靜止休息',
+    enName: 'Resting Mother & Calf',
+    zoneLabel: '水下黃金攝影狀態',
+    safetyCategory: 'swim',
+    statusText: '黃金時機・嚴禁下潛追逐',
+    statusTone: 'safe',
+    svgVariant: 'mother-calf',
+    summary: '母鯨懸停於 8–15 公尺深處閉氣休息，幼鯨躲在母鯨胸鰭下方，每 3–6 分鐘獨自浮上水面換氣。',
+    meaning:
+      '剛出生數週的幼鯨肺活量小且需要頻繁哺乳休息，沖繩慶良間清澈平靜的淺海正是母子鯨最安心的育幼避風港。',
+    underwaterCue:
+      '最珍貴也最需要克制的相遇狀態。母鯨會緊盯泳客位置；若有人強行下潛逼近，母鯨會立刻擋在幼鯨前並帶走幼鯨結束相遇。',
+    photoTip:
+      '全程保持水面水平浮潛、零水花漂浮，等好奇的小鯨自己浮上水面換氣時以自然光平視拍攝，往往能獲得最溫柔的母子同框。',
+  },
+  {
+    id: 'fluke-dive',
+    zhName: '舉尾深潛',
+    enName: 'Fluke-Up Deep Dive',
+    zoneLabel: '換氣週期結束訊號',
+    safetyCategory: 'swim',
+    statusText: '即將深潛 10–20 分鐘',
+    statusTone: 'safe',
+    svgVariant: 'fluke-dive',
+    summary: '連續數次水面換氣後，明顯高拱背部（Peduncle Arch），隨後將整個尾鰭優雅舉出水面垂直下潛。',
+    meaning:
+      '代表這輪換氣已經完成，鯨魚將下潛至較深海域巡游或休息，短時間內不會浮出水面。',
+    underwaterCue:
+      '水下看到鯨魚頭部下壓、背部大幅彎曲準備下潛時，切勿追著尾鰭下壓；保持原位目送即可拍下完整背影與尾鰭展開的瞬間。',
+    photoTip:
+      '舉尾那 2–3 秒是拍攝尾鰭紋路（Fluke ID）與慶良間深藍光束的絕佳構圖，建議提前將快門設在 1/320s 以上等待。',
+  },
+  {
+    id: 'heat-run',
+    zhName: '求偶追逐群',
+    enName: 'Competitive Heat Run',
+    zoneLabel: '多鯨高速競逐',
+    safetyCategory: 'caution',
+    statusText: '高速移動・嚴格聽從教練',
+    statusTone: 'caution',
+    svgVariant: 'heat-run',
+    summary: '數頭（有時達 5–10 頭）成年雄鯨高速追逐一頭領頭雌鯨，伴隨頻繁噴氣、衝撞與大片氣泡幕。',
+    meaning:
+      '冬季繁殖季最震撼的求偶競爭，雄鯨彼此爭奪成為雌鯨身旁的「護衛鯨（Escort）」位置。',
+    underwaterCue:
+      '移動速度極快、方向突變且具衝撞風險，完全無法跟游；只能在教練精準預判行進路線側前方快速滑入，待鯨群掠過後立即上船。',
+    photoTip:
+      '提早確認相機已開機並轉至廣角錄影或高速連拍，入水後身體緊貼水面不要阻擋正前方路徑，捕捉多頭巨鯨列隊通過的史詩畫面。',
+  },
+];
+
+const WHALE_BIOLOGY_FACTS = [
+  { label: '成鯨體長', value: '13–16 m', note: '母鯨通常比公鯨略長 1–1.5 公尺' },
+  { label: '平均體重', value: '25–40 t', note: '剛出生幼鯨約 4 公尺、重 1–1.5 噸' },
+  { label: '胸鰭長度', value: '4–5 m', note: '鬚鯨中最長，學名意為「巨大翅膀」' },
+  { label: '閉氣時間', value: '10–20 min', note: '母帶小鯨則每 3–6 分鐘浮上換氣' },
+];
+
+const WHALE_ETIQUETTE_RULES = [
+  {
+    num: '01.',
+    title: '絕不追逐、不攔截游動路線',
+    body: '永遠由側前方適當距離靜音入水，把主導權留給鯨魚。切勿猛踢蛙鞋從正後方追趕或包圍鯨群。',
+  },
+  {
+    num: '02.',
+    title: '滑入式靜音入水（Slide-in）',
+    body: '禁止跨步式跳水或翻滾落水，避免巨大水花與氣泡驚嚇鯨魚；入水後保持身體水平、動作緩慢。',
+  },
+  {
+    num: '03.',
+    title: '面對母子鯨維持水面浮潛，不隨意下潛',
+    body: '母鯨對幼鯨保護意識極強，任意自由潛水下壓容易讓母鯨感覺威脅而立刻帶小鯨深潛離去。',
+  },
+  {
+    num: '04.',
+    title: '全程關閉閃光燈與水下補光燈',
+    body: '嚴禁使用閃光燈（Strobe）或強力手電筒照射鯨魚眼睛，善用慶良間高能見度的自然光拍攝即可。',
+  },
+  {
+    num: '05.',
+    title: '看懂壓力訊號、即時拉開距離',
+    body: '原則保持 10–15 公尺以上觀察距離（若鯨魚主動靠近則靜止不動）。若出現連續甩尾、猛噴氣泡幕或突然轉向加速，立刻配合退開。',
+  },
+  {
+    num: '06.',
+    title: '統一聽從船長與帶隊教練手勢',
+    body: '沖繩追鯨有嚴格海域規範，每次入水人數、停留時間與上船撤離時機皆以船長與教練指示為準；且全團禁用長蛙鞋。',
+  },
+];
+
+interface WhaleQuizItem {
+  id: string;
+  question: string;
+  options: string[];
+  correctIdx: number;
+  explanation: string;
+}
+
+const WHALE_QUIZ_ITEMS: WhaleQuizItem[] = [
+  {
+    id: 'q1',
+    question: '水下看到母鯨停在 10 公尺深處休息、小鯨自己浮上水面換氣時，最正確的做法是？',
+    options: [
+      '立刻深潛到母鯨正上方近距離自拍',
+      '保持水面水平靜止浮潛，輕柔呼吸等小鯨自然靠近',
+      '大力踢蛙鞋游到小鯨與母鯨中間',
+    ],
+    correctIdx: 1,
+    explanation:
+      '母子鯨休息時最怕上方下壓與水花驚擾。保持水面靜止不動，小鯨反而常會好奇主動靠近鏡頭。',
+  },
+  {
+    id: 'q2',
+    question: '原本平穩游動的大翅鯨突然大力拍尾（Lobtailing）並朝人群吐出一大片氣泡幕，代表什麼？',
+    options: [
+      '牠正在開心邀請大家游更近一起玩',
+      '這是明確的警戒與壓力訊號，應停止靠近並依教練指示退開',
+      '牠正準備在原地睡覺',
+    ],
+    correctIdx: 1,
+    explanation:
+      '頻繁甩尾擊浪與氣泡幕（Bubble Blast）屬於高張力警告訊號，尊重鯨魚空間退開才能保障安全與後續相遇機會。',
+  },
+  {
+    id: 'q3',
+    question: '船邊看到大翅鯨連續躍身擊浪（Breaching），這時候應該怎麼做？',
+    options: [
+      '趁浪花很大立刻跳下水游到落水點旁拍攝',
+      '先留在船上安全觀賞與拍攝，絕不貿然靠近落水範圍',
+      '開閃光燈朝海面吸引牠游向船邊',
+    ],
+    correctIdx: 1,
+    explanation:
+      '成鯨體重達 30–40 噸，躍身擊浪落水衝擊力極大且可能連續跳躍，留在船上以高速快門拍攝最安全也最清楚。',
+  },
+  {
+    id: 'q4',
+    question: '看到大翅鯨高拱背部並將整個尾鰭垂直舉出水面（Fluke-up），代表接下來會發生什麼？',
+    options: [
+      '牠準備進行 10–20 分鐘的深潛，此時很適合記錄尾鰭腹面花紋',
+      '牠準備停在原地不動讓大家摸背',
+      '牠受傷了需要人類靠近協助',
+    ],
+    correctIdx: 0,
+    explanation:
+      '高舉尾鰭是深潛的經典起手式，代表換氣週期結束；每頭鯨魚的尾鰭黑白花紋都如同指紋般獨一無二，非常值得拍下留念。',
+  },
+];
+
+function WhaleBehaviorSvg({
+  variant,
+  title,
+}: {
+  variant: 'fluke-dive' | 'mother-calf' | 'heat-run';
+  title: string;
+}) {
+  return (
+    <div
+      role="img"
+      aria-label={`${title} 示意圖`}
+      className="relative flex aspect-[4/3] w-full items-center justify-center overflow-hidden bg-gradient-to-b from-[#0c4a6e] via-[#0369a1] to-[#082f49] p-4"
+    >
+      {/* 慶良間光束 */}
+      <svg
+        viewBox="0 0 320 240"
+        className="h-full w-full"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <defs>
+          <linearGradient id={`ray-${variant}`} x1="160" y1="0" x2="160" y2="210" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stopColor="#bae6fd" stopOpacity="0.34" />
+            <stop offset="100%" stopColor="#bae6fd" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d="M90 0 L145 0 L190 220 L50 220 Z" fill={`url(#ray-${variant})`} />
+        <path d="M170 0 L225 0 L285 220 L165 220 Z" fill={`url(#ray-${variant})`} />
+        <path
+          d="M0 24 Q 40 16, 80 24 T 160 24 T 240 24 T 320 24"
+          stroke="#e0f2fe"
+          strokeOpacity="0.45"
+          strokeWidth="2"
+        />
+
+        {variant === 'mother-calf' && (
+          <g>
+            {/* 母鯨靜止懸停 */}
+            <path
+              d="M52 152 C 74 128, 148 122, 206 144 C 234 154, 256 150, 274 136 C 268 156, 280 168, 290 172 C 266 172, 248 166, 224 166 C 172 178, 92 178, 52 152 Z"
+              fill="#0f293a"
+              stroke="#bae6fd"
+              strokeOpacity="0.5"
+              strokeWidth="1.5"
+            />
+            {/* 母鯨白色長胸鰭 */}
+            <path
+              d="M124 160 C 138 186, 158 206, 174 204 C 166 190, 156 174, 148 160 Z"
+              fill="#e0f2fe"
+              fillOpacity="0.88"
+            />
+            {/* 小鯨上浮換氣 */}
+            <path
+              d="M142 86 C 156 72, 186 72, 206 88 C 218 96, 228 96, 238 90 C 234 100, 240 106, 246 108 C 232 108, 222 104, 210 104 C 184 108, 158 104, 142 86 Z"
+              fill="#1e3a5f"
+              stroke="#e0f2fe"
+              strokeOpacity="0.7"
+              strokeWidth="1.5"
+            />
+            {/* 上浮虛線與換氣泡泡 */}
+            <path
+              d="M174 122 C 170 112, 168 106, 168 100"
+              stroke="#bae6fd"
+              strokeWidth="1.5"
+              strokeDasharray="4 4"
+            />
+            <circle cx="152" cy="54" r="3" fill="#e0f2fe" fillOpacity="0.75" />
+            <circle cx="160" cy="42" r="2.2" fill="#e0f2fe" fillOpacity="0.65" />
+            <text x="20" y="218" fill="#e0f2fe" fontSize="11" fontWeight="700" opacity="0.9">
+              母鯨靜止懸停（8–15m） · 小鯨每 3–6 分鐘自行上浮換氣
+            </text>
+          </g>
+        )}
+
+        {variant === 'fluke-dive' && (
+          <g>
+            {/* 舉尾深潛尾鰭 */}
+            <path
+              d="M146 118 C 122 86, 86 70, 62 66 C 74 88, 92 106, 128 122 C 138 148, 146 184, 152 214 L 174 214 C 176 184, 182 150, 192 122 C 228 106, 246 88, 258 66 C 234 70, 198 86, 174 118 Z"
+              fill="#0f293a"
+              stroke="#e0f2fe"
+              strokeOpacity="0.75"
+              strokeWidth="1.5"
+            />
+            {/* 尾鰭白色指紋斑塊 */}
+            <path
+              d="M84 78 C 102 84, 118 96, 132 112 C 110 106, 94 94, 84 78 Z"
+              fill="#e0f2fe"
+              fillOpacity="0.82"
+            />
+            <path
+              d="M236 78 C 218 84, 202 96, 188 112 C 210 106, 226 94, 236 78 Z"
+              fill="#e0f2fe"
+              fillOpacity="0.82"
+            />
+            {/* 下潛箭頭 */}
+            <path d="M162 154 L162 196 M154 188 L162 198 L170 188" stroke="#bae6fd" strokeWidth="2" strokeLinecap="round" />
+            <text x="20" y="228" fill="#e0f2fe" fontSize="11" fontWeight="700" opacity="0.9">
+              拱背舉尾露出獨特斑紋 · 進入 10–20 分鐘深潛週期
+            </text>
+          </g>
+        )}
+
+        {variant === 'heat-run' && (
+          <g>
+            {/* 領頭雌鯨 */}
+            <path
+              d="M188 86 C 206 72, 246 72, 276 86 C 288 92, 298 90, 306 84 C 302 94, 308 100, 312 102 C 298 102, 288 98, 276 98 C 246 104, 208 102, 188 86 Z"
+              fill="#0f293a"
+              stroke="#e0f2fe"
+              strokeOpacity="0.7"
+              strokeWidth="1.4"
+            />
+            {/* 追逐公鯨群 1 */}
+            <path
+              d="M82 126 C 104 110, 152 110, 186 126 C 200 132, 212 130, 222 122 C 218 134, 224 140, 228 144 C 212 144, 200 138, 186 138 C 150 146, 104 144, 82 126 Z"
+              fill="#0c2d48"
+              stroke="#bae6fd"
+              strokeOpacity="0.65"
+              strokeWidth="1.4"
+            />
+            {/* 追逐公鯨群 2 */}
+            <path
+              d="M28 168 C 52 152, 102 152, 138 168 C 152 174, 164 172, 174 164 C 170 176, 176 182, 180 186 C 164 186, 152 180, 138 180 C 102 188, 52 186, 28 168 Z"
+              fill="#082f49"
+              stroke="#bae6fd"
+              strokeOpacity="0.55"
+              strokeWidth="1.4"
+            />
+            {/* 高速氣泡流線 */}
+            <path d="M26 94 L160 94" stroke="#bae6fd" strokeOpacity="0.45" strokeWidth="1.5" strokeDasharray="6 6" />
+            <circle cx="170" cy="112" r="3" fill="#e0f2fe" fillOpacity="0.75" />
+            <circle cx="156" cy="106" r="2.2" fill="#e0f2fe" fillOpacity="0.65" />
+            <circle cx="122" cy="148" r="2.8" fill="#e0f2fe" fillOpacity="0.7" />
+            <text x="20" y="220" fill="#e0f2fe" fontSize="11" fontWeight="700" opacity="0.9">
+              多頭雄鯨高速競逐 · 僅由側前方快速滑入並保持安全側距
+            </text>
+          </g>
+        )}
+      </svg>
+    </div>
+  );
+}
+
+function WhaleGuidePhoto({
+  src,
+  alt,
+  aspectClass = 'aspect-[4/3]',
+}: {
+  src: string;
+  alt: string;
+  aspectClass?: string;
+}) {
+  const [failed, setFailed] = useState(false);
+
+  if (failed) {
+    return (
+      <div
+        className={`flex ${aspectClass} w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-[#0c4a6e] via-[#0369a1] to-[#082f49] px-4 text-center text-white`}
+      >
+        <Waves className="h-7 w-7 text-[#bae6fd]" />
+        <span className="text-[13px] font-bold text-[#e0f2fe]">{alt}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`relative ${aspectClass} w-full overflow-hidden bg-[#0c4a6e]`}>
+      <img
+        src={src}
+        alt={alt}
+        referrerPolicy="no-referrer"
+        loading="lazy"
+        onError={() => setFailed(true)}
+        className="h-full w-full object-cover"
+      />
+    </div>
+  );
+}
+
+function WhaleGuideTab() {
+  const [section, setSection] = useState<WhaleGuideSection>('behaviors');
+  const [safetyFilter, setSafetyFilter] = useState<WhaleSafetyCategory>('all');
+  const [expandedBehaviorId, setExpandedBehaviorId] = useState<string>('breaching');
+  const [quizAnswers, setQuizAnswers] = useState<Record<string, number>>({});
+
+  const filteredBehaviors = useMemo(() => {
+    if (safetyFilter === 'all') return WHALE_BEHAVIORS;
+    return WHALE_BEHAVIORS.filter((b) => b.safetyCategory === safetyFilter);
+  }, [safetyFilter]);
+
+  const answeredCount = Object.keys(quizAnswers).length;
+  const correctCount = WHALE_QUIZ_ITEMS.filter(
+    (q) => quizAnswers[q.id] === q.correctIdx
+  ).length;
+
+  const sectionTabs: { id: WhaleGuideSection; label: string }[] = [
+    { id: 'behaviors', label: '行為辨識' },
+    { id: 'biology', label: '生態檔案' },
+    { id: 'etiquette', label: '攝影禮儀' },
+    { id: 'quiz', label: '狀態測驗' },
+  ];
+
+  const filterButtons: { id: WhaleSafetyCategory; label: string }[] = [
+    { id: 'all', label: '全部行為' },
+    { id: 'swim', label: '適合下水' },
+    { id: 'caution', label: '謹慎警戒' },
+    { id: 'boat', label: '船上觀賞' },
+  ];
+
+  return (
+    <div className="space-y-4">
+      {/* 視覺主圖 Hero */}
+      <section className="relative overflow-hidden rounded-3xl border border-[#0c4a6e]/15 bg-[#082f49] shadow-[0_8px_24px_rgba(8,47,73,0.16)]">
+        <WhaleGuidePhoto
+          src={WHALE_HERO_IMAGE}
+          alt="沖繩慶良間海域大翅鯨母子共游水下攝影"
+          aspectClass="aspect-[16/10]"
+        />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#061824]/92 via-[#061824]/42 to-transparent" />
+        <div className="absolute inset-x-0 bottom-0 p-4 text-white">
+          <p className="text-[11.5px] font-semibold tracking-wide text-[#bae6fd]">
+            Megaptera novaeangliae · 慶良間追鯨水下攝影手冊
+          </p>
+          <h1 className="mt-1 text-[22px] font-extrabold leading-tight tracking-tight [text-wrap:balance]">
+            大翅鯨生態與行為圖鑑
+          </h1>
+          <p className="mt-1 text-[13px] leading-relaxed text-[#e0f2fe]/95">
+            看懂躍身擊浪、鯨尾擊浪與母子休息訊號，水下相遇更安全、更能拍出故事感。
+          </p>
+        </div>
+      </section>
+
+      {/* 分頁切換 Segmented Control */}
+      <div
+        role="tablist"
+        aria-label="大翅鯨圖鑑章節"
+        className="grid grid-cols-4 gap-1 rounded-2xl border border-[#e7e2d8] bg-[#f4f0e8] p-1"
+      >
+        {sectionTabs.map((tab) => {
+          const active = section === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setSection(tab.id)}
+              className={`min-h-[42px] whitespace-nowrap rounded-xl px-2 text-[13px] font-bold transition-colors ${
+                active
+                  ? 'bg-[#0369a1] text-white shadow-xs'
+                  : 'text-[#57534e] hover:text-[#0f293a]'
+              }`}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ==================== 1. 行為辨識 ==================== */}
+      {section === 'behaviors' && (
+        <div className="space-y-3.5">
+          {/* 狀態篩選列 */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+            {filterButtons.map((btn) => {
+              const active = safetyFilter === btn.id;
+              return (
+                <button
+                  key={btn.id}
+                  type="button"
+                  onClick={() => setSafetyFilter(btn.id)}
+                  className={`min-h-[38px] shrink-0 whitespace-nowrap rounded-xl border px-3 text-[12.5px] font-bold transition-colors ${
+                    active
+                      ? 'border-[#0369a1] bg-[#0f293a] text-white'
+                      : 'border-[#e7e2d8] bg-white text-[#57534e]'
+                  }`}
+                >
+                  {btn.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* 行為圖鑑卡片清單 */}
+          <div className="space-y-3.5">
+            {filteredBehaviors.map((item) => {
+              const isExpanded = expandedBehaviorId === item.id;
+              const statusColorClass =
+                item.statusTone === 'safe'
+                  ? 'text-[#0f766e]'
+                  : item.statusTone === 'caution'
+                  ? 'text-[#b45309]'
+                  : 'text-[#b91c1c]';
+
+              return (
+                <article
+                  key={item.id}
+                  className="overflow-hidden rounded-3xl border border-[#e7e2d8] bg-white shadow-[0_2px_10px_rgba(12,74,110,0.05)]"
+                >
+                  {item.imageFile ? (
+                    <WhaleGuidePhoto
+                      src={item.imageFile}
+                      alt={`${item.zhName}（${item.enName}）`}
+                      aspectClass="aspect-[4/3]"
+                    />
+                  ) : item.svgVariant ? (
+                    <WhaleBehaviorSvg variant={item.svgVariant} title={item.zhName} />
+                  ) : null}
+
+                  <div className="p-4">
+                    <div className="flex items-baseline justify-between gap-2 text-[12px] font-semibold text-[#64748b]">
+                      <span className="truncate">
+                        {item.enName} · {item.zoneLabel}
+                      </span>
+                      <span className={`shrink-0 font-extrabold ${statusColorClass}`}>
+                        {item.statusText}
+                      </span>
+                    </div>
+
+                    <div className="mt-1 flex items-center justify-between gap-2">
+                      <h2 className="text-[19px] font-extrabold text-[#0f293a]">
+                        {item.zhName}
+                      </h2>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedBehaviorId(isExpanded ? '' : item.id)
+                        }
+                        aria-expanded={isExpanded}
+                        className="inline-flex min-h-[40px] shrink-0 items-center gap-1 rounded-xl bg-[#f4f0e8] px-3 text-[12.5px] font-bold text-[#0f293a] transition active:scale-95"
+                      >
+                        <span>{isExpanded ? '收合解析' : '水下判讀'}</span>
+                        <ChevronDown
+                          className={`h-4 w-4 transition-transform duration-200 ${
+                            isExpanded ? 'rotate-180' : ''
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    <p className="mt-2 text-[14px] leading-relaxed text-[#44403c]">
+                      {item.summary}
+                    </p>
+
+                    {isExpanded && (
+                      <div className="mt-3.5 divide-y divide-[#ede8df] border-t border-[#ede8df] pt-1 text-[13.5px] leading-relaxed text-[#334155]">
+                        <div className="py-2.5">
+                          <h3 className="text-[12.5px] font-extrabold text-[#0f293a]">
+                            行為意涵
+                          </h3>
+                          <p className="mt-1">{item.meaning}</p>
+                        </div>
+                        <div className="py-2.5">
+                          <h3 className="flex items-center gap-1.5 text-[12.5px] font-extrabold text-[#0369a1]">
+                            <Eye className="h-3.5 w-3.5 shrink-0" />
+                            <span>水下狀態判讀</span>
+                          </h3>
+                          <p className="mt-1">{item.underwaterCue}</p>
+                        </div>
+                        <div className="pt-2.5">
+                          <h3 className="flex items-center gap-1.5 text-[12.5px] font-extrabold text-[#0f766e]">
+                            <Camera className="h-3.5 w-3.5 shrink-0" />
+                            <span>水下攝影建議</span>
+                          </h3>
+                          <p className="mt-1">{item.photoTip}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ==================== 2. 生態檔案 ==================== */}
+      {section === 'biology' && (
+        <div className="space-y-4">
+          {/* 基本數據 2x2 網格 */}
+          <section className="rounded-3xl border border-[#e7e2d8] bg-white p-4">
+            <p className="text-[12px] font-semibold text-[#64748b]">
+              鬚鯨科 · 北太平洋族群基礎數據
+            </p>
+            <h2 className="mt-0.5 text-[19px] font-extrabold text-[#0f293a]">
+              大翅鯨基本檔案
+            </h2>
+
+            <div className="mt-3 grid grid-cols-2 gap-2.5">
+              {WHALE_BIOLOGY_FACTS.map((fact) => (
+                <div
+                  key={fact.label}
+                  className="rounded-2xl border border-[#ede8df] bg-[#faf7f2] p-3"
+                >
+                  <p className="text-[12px] font-semibold text-[#64748b]">{fact.label}</p>
+                  <p className="mt-1 text-[21px] font-extrabold tracking-tight text-[#0369a1] tabular-nums">
+                    {fact.value}
+                  </p>
+                  <p className="mt-1 text-[12px] leading-snug text-[#57534e]">{fact.note}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* 慶良間遷徙故事 */}
+          <section className="rounded-3xl border border-[#e7e2d8] bg-white p-4">
+            <p className="text-[12px] font-semibold text-[#0369a1]">
+              每年 1 月至 3 月 · 超過 5,000 公里南下遷徙
+            </p>
+            <h2 className="mt-0.5 text-[18px] font-extrabold text-[#0f293a]">
+              為什麼冬天會來到沖繩慶良間？
+            </h2>
+            <div className="mt-3 space-y-2.5 text-[14px] leading-relaxed text-[#44403c]">
+              <p>
+                每年夏天，北太平洋大翅鯨會在阿拉斯加、堪察加與白令海等寒冷高緯度海域大量進食磷蝦與小型魚群，儲存厚實的皮下脂肪。
+              </p>
+              <p>
+                入冬後牠們長途跋涉南下至水溫約 21–22°C、珊瑚礁地形天然擋浪的沖繩慶良間諸島海域，專注於<strong>求偶交配、生產與育幼</strong>。整個冬季繁殖期間成鯨幾乎不進食，因此節省體力對母子鯨至關重要。
+              </p>
+            </div>
+          </section>
+
+          {/* 三大辨識特徵 */}
+          <section className="rounded-3xl border border-[#e7e2d8] bg-white p-4">
+            <p className="text-[12px] font-semibold text-[#64748b]">
+              水下觀察與紀錄重點
+            </p>
+            <h2 className="mt-0.5 text-[18px] font-extrabold text-[#0f293a]">
+              三大招牌身體特徵
+            </h2>
+            <div className="mt-3 divide-y divide-[#ede8df] text-[14px] leading-relaxed text-[#44403c]">
+              <div className="pb-3">
+                <h3 className="font-extrabold text-[#0f293a]">
+                  01. 尾鰭腹面花紋（鯨魚指紋）
+                </h3>
+                <p className="mt-1 text-[13.5px]">
+                  每頭大翅鯨尾鰭底部的黑白斑塊與後緣鋸齒缺刻皆獨一無二，如同人類指紋，拍到完整尾鰭即可協助海洋研究辨識個體。
+                </p>
+              </div>
+              <div className="py-3">
+                <h3 className="font-extrabold text-[#0f293a]">
+                  02. 超長白色胸鰭與瘤狀結節
+                </h3>
+                <p className="mt-1 text-[13.5px]">
+                  長達 4–5 公尺的胸鰭前緣排列著流體力學結節（Tubercles），能降低水流失速，讓重達數十噸的鯨身在水中依然靈活轉彎。
+                </p>
+              </div>
+              <div className="pt-3">
+                <h3 className="font-extrabold text-[#0f293a]">
+                  03. 雄鯨水下歌聲（Whale Song）
+                </h3>
+                <p className="mt-1 text-[13.5px]">
+                  冬季常可在慶良間水下直接聽見雄鯨懸停在 15–30 公尺深處低鳴吟唱，旋律結構完整、每次可持續 10–20 分鐘，甚至能感受到胸腔共鳴。
+                </p>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {/* ==================== 3. 攝影禮儀 ==================== */}
+      {section === 'etiquette' && (
+        <div className="space-y-4">
+          <section className="rounded-3xl border border-[#e7e2d8] bg-white p-4">
+            <p className="text-[12px] font-semibold text-[#0369a1]">
+              Okinawa Whale Swim Etiquette · 尊重野生動物
+            </p>
+            <h2 className="mt-0.5 text-[19px] font-extrabold text-[#0f293a]">
+              沖繩追鯨觀察與水下禮儀
+            </h2>
+            <p className="mt-1.5 text-[13.5px] leading-relaxed text-[#57534e]">
+              最動人的大翅鯨照片，永遠來自「讓鯨魚感到安心並主動靠近」的時刻。出發前請全團熟記以下 6 項原則：
+            </p>
+
+            <ol className="mt-3 divide-y divide-[#ede8df]">
+              {WHALE_ETIQUETTE_RULES.map((rule) => (
+                <li key={rule.num} className="py-3 first:pt-2 last:pb-0">
+                  <h3 className="text-[15px] font-extrabold text-[#0f293a]">
+                    <span className="mr-1.5 font-mono text-[#0369a1] tabular-nums">
+                      {rule.num}
+                    </span>
+                    {rule.title}
+                  </h3>
+                  <p className="mt-1 text-[13.5px] leading-relaxed text-[#57534e]">
+                    {rule.body}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          </section>
+
+          <section className="rounded-3xl border border-[#e7e2d8] bg-white p-4">
+            <p className="text-[12px] font-semibold text-[#0f766e]">
+              水下攝影實戰參數參考
+            </p>
+            <h2 className="mt-0.5 text-[18px] font-extrabold text-[#0f293a]">
+              慶良間追鯨拍攝小抄
+            </h2>
+            <div className="mt-3 divide-y divide-[#ede8df] text-[13.5px] leading-relaxed text-[#44403c]">
+              <div className="flex items-start justify-between gap-3 py-2.5 first:pt-0">
+                <span className="shrink-0 font-bold text-[#0f293a]">建議焦段</span>
+                <span className="text-right">超廣角 14–24mm、魚眼或運動相機超廣角模式</span>
+              </div>
+              <div className="flex items-start justify-between gap-3 py-2.5">
+                <span className="shrink-0 font-bold text-[#0f293a]">快門與光圈</span>
+                <span className="text-right tabular-nums">1/250s–1/500s · F5.6–F8 · 自動 ISO 上限 1600</span>
+              </div>
+              <div className="flex items-start justify-between gap-3 py-2.5">
+                <span className="shrink-0 font-bold text-[#0f293a]">光線與構圖</span>
+                <span className="text-right">關閃光燈、順光拍清澈細節，或逆光拍慶良間丁達爾光束</span>
+              </div>
+              <div className="flex items-start justify-between gap-3 pt-2.5">
+                <span className="shrink-0 font-bold text-[#0f293a]">裝備規範</span>
+                <span className="text-right">使用一般蛙鞋（禁止長蛙鞋），防寒衣與手腕防丟繩必備</span>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {/* ==================== 4. 狀態測驗 ==================== */}
+      {section === 'quiz' && (
+        <div className="space-y-3.5">
+          <section className="rounded-3xl border border-[#e7e2d8] bg-white p-4">
+            <div className="flex items-baseline justify-between gap-2">
+              <div>
+                <p className="text-[12px] font-semibold text-[#0369a1]">
+                  出海前實戰情境練習
+                </p>
+                <h2 className="mt-0.5 text-[19px] font-extrabold text-[#0f293a]">
+                  水下鯨魚狀態判讀測驗
+                </h2>
+              </div>
+              <span className="text-[14px] font-extrabold text-[#0369a1] tabular-nums">
+                {correctCount} / {WHALE_QUIZ_ITEMS.length}
+              </span>
+            </div>
+            <p className="mt-1 text-[13px] text-[#57534e]">
+              點選各題最合適的水下應對方式，確認上船前都已掌握大翅鯨訊號。
+            </p>
+          </section>
+
+          {WHALE_QUIZ_ITEMS.map((q, qIdx) => {
+            const picked = quizAnswers[q.id];
+            const isAnswered = typeof picked === 'number';
+            const isCorrect = picked === q.correctIdx;
+
+            return (
+              <section
+                key={q.id}
+                className="rounded-3xl border border-[#e7e2d8] bg-white p-4"
+              >
+                <p className="text-[12px] font-bold text-[#64748b] tabular-nums">
+                  情境 0{qIdx + 1} / 0{WHALE_QUIZ_ITEMS.length}
+                </p>
+                <h3 className="mt-1 text-[15.5px] font-extrabold leading-snug text-[#0f293a]">
+                  {q.question}
+                </h3>
+
+                <div className="mt-3 space-y-2">
+                  {q.options.map((opt, optIdx) => {
+                    const selected = picked === optIdx;
+                    const showRight = isAnswered && optIdx === q.correctIdx;
+                    const showWrong = selected && optIdx !== q.correctIdx;
+
+                    let btnClass =
+                      'border-[#e7e2d8] bg-[#faf7f2] text-[#0f293a] hover:border-[#0369a1]';
+                    if (showRight) {
+                      btnClass = 'border-[#0f766e] bg-[#f0fdfa] text-[#115e59]';
+                    } else if (showWrong) {
+                      btnClass = 'border-[#dc2626] bg-[#fef2f2] text-[#991b1b]';
+                    }
+
+                    return (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() =>
+                          setQuizAnswers((prev) => ({ ...prev, [q.id]: optIdx }))
+                        }
+                        className={`flex min-h-[46px] w-full items-center justify-between gap-2 rounded-2xl border px-3.5 py-2.5 text-left text-[13.5px] font-semibold transition-colors ${btnClass}`}
+                      >
+                        <span>{opt}</span>
+                        {showRight && <Check className="h-4 w-4 shrink-0 text-[#0f766e]" />}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {isAnswered && (
+                  <p
+                    className={`mt-3 rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed ${
+                      isCorrect
+                        ? 'bg-[#f0fdfa] text-[#115e59]'
+                        : 'bg-[#fffbeb] text-[#92400e]'
+                    }`}
+                  >
+                    <strong>{isCorrect ? '判讀正確：' : '提醒：'}</strong>
+                    {q.explanation}
+                  </p>
+                )}
+              </section>
+            );
+          })}
+
+          {answeredCount === WHALE_QUIZ_ITEMS.length && (
+            <section className="rounded-3xl border border-[#bae6fd] bg-[#f0f9ff] p-4 text-center">
+              <p className="text-[16px] font-extrabold text-[#0c4a6e] tabular-nums">
+                完成測驗：{correctCount} / {WHALE_QUIZ_ITEMS.length} 題正確
+              </p>
+              <p className="mt-1 text-[13px] text-[#0369a1]">
+                {correctCount === WHALE_QUIZ_ITEMS.length
+                  ? '滿分過關！你已經準備好在慶良間優雅迎接大翅鯨了。'
+                  : '可以回頭複習「行為辨識」與「攝影禮儀」，出海時更有把握。'}
+              </p>
+              <button
+                type="button"
+                onClick={() => setQuizAnswers({})}
+                className="mt-3 min-h-[42px] rounded-xl bg-[#0369a1] px-5 text-[13.5px] font-bold text-white transition active:scale-95"
+              >
+                重新測驗
+              </button>
+            </section>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
 // 6. 主應用程式 (App)
 // ============================================================================
 
@@ -2889,7 +4712,7 @@ export default function App() {
     [todayStr, tripDays, activeGroup]
   );
 
-  const [activeTab, setActiveTab] = useState<'today' | 'itinerary' | 'map' | 'info' | 'checklist'>('today');
+  const [activeTab, setActiveTab] = useState<'today' | 'itinerary' | 'map' | 'whales' | 'info' | 'checklist'>('today');
   const [selectedDayIdx, setSelectedDayIdx] = useState(tripStatus.defaultDayIdx);
 
   // 雲端登入與跨裝置即時同步狀態
@@ -2897,6 +4720,7 @@ export default function App() {
   const [claims, setClaims] = useState<Record<string, MemberClaim>>({});
   const [checkData, setCheckData] = useState<Record<string, MemberChecklistState>>({});
   const [gameScores, setGameScores] = useState<Record<string, GameScoreEntry>>({});
+  const [flights, setFlights] = useState<Record<string, MemberFlightInfo>>({});
   const [avatars, setAvatars] = useState<Record<string, string>>(() => {
     try {
       const saved = localStorage.getItem('okinawa_whale_avatars_v1');
@@ -2918,7 +4742,34 @@ export default function App() {
   const [coachPinInput, setCoachPinInput] = useState('');
   const [coachPinError, setCoachPinError] = useState<string | null>(null);
   const [isCoachUnlocked, setIsCoachUnlocked] = useState(false);
+  const [openInfoSections, setOpenInfoSections] = useState<Record<InfoSectionKey, boolean>>({
+    calc: true,
+    flight: false,
+    line: false,
+    rental: false,
+    hotel: false,
+    food: false,
+    market: false,
+    vjw: false,
+  });
   const calcRef = useRef<HTMLElement | null>(null);
+
+  const toggleInfoSection = useCallback((key: InfoSectionKey) => {
+    setOpenInfoSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
+
+  const setAllInfoSections = useCallback((open: boolean) => {
+    setOpenInfoSections({
+      calc: open,
+      flight: open,
+      line: open,
+      rental: open,
+      hotel: open,
+      food: open,
+      market: open,
+      vjw: open,
+    });
+  }, []);
 
   // (1) 初始化驗證並監聽登入狀態（若尚未設定 Firebase 則自動切換為本機儲存模式）
   useEffect(() => {
@@ -2931,6 +4782,8 @@ export default function App() {
         if (savedChecks) setCheckData(JSON.parse(savedChecks) as Record<string, MemberChecklistState>);
         const savedScores = localStorage.getItem('okinawa_whale_scores_v1');
         if (savedScores) setGameScores(JSON.parse(savedScores) as Record<string, GameScoreEntry>);
+        const savedFlights = localStorage.getItem('okinawa_whale_flights_v1');
+        if (savedFlights) setFlights(JSON.parse(savedFlights) as Record<string, MemberFlightInfo>);
       } catch {
         // 忽略本機讀取異常
       }
@@ -3043,8 +4896,114 @@ export default function App() {
     return found ? found.id : null;
   }, [claims, activeGroupId, user]);
 
+  const myClaimedMember = useMemo(
+    () => (myClaimedMemberId ? MEMBERS.find((m) => m.id === myClaimedMemberId) || null : null),
+    [myClaimedMemberId]
+  );
+
+  const isLockedCoach = Boolean(myClaimedMemberId && isCoachMember(myClaimedMemberId));
   const isMemberLocked = Boolean(myClaimedMemberId);
   const activeMemberId = myClaimedMemberId || previewMemberId;
+
+  // (3) 航班資訊即時同步：僅兩位已鎖定的帶隊教練會讀取全團總表，一般團員只讀取自己的紀錄
+  useEffect(() => {
+    if (!user || !db) return;
+    if (!myClaimedMemberId) {
+      setFlights({});
+      return;
+    }
+
+    if (isLockedCoach) {
+      const flightsCol = collection(db, 'artifacts', appId, 'public', 'data', 'member_flights');
+      const unsubAllFlights = onSnapshot(
+        flightsCol,
+        (snapshot) => {
+          const nextFlights: Record<string, MemberFlightInfo> = {};
+          snapshot.forEach((docSnap) => {
+            nextFlights[docSnap.id] = docSnap.data() as MemberFlightInfo;
+          });
+          setFlights(nextFlights);
+        },
+        (err) => {
+          console.error('同步全團航班資訊失敗:', err);
+        }
+      );
+      return () => unsubAllFlights();
+    }
+
+    const myKey = `${activeGroupId}_${myClaimedMemberId}`;
+    const myFlightRef = doc(db, 'artifacts', appId, 'public', 'data', 'member_flights', myKey);
+    const unsubMyFlight = onSnapshot(
+      myFlightRef,
+      (docSnap) => {
+        if (docSnap.exists()) {
+          setFlights({ [myKey]: docSnap.data() as MemberFlightInfo });
+        } else {
+          setFlights({});
+        }
+      },
+      (err) => {
+        console.error('同步個人航班資訊失敗:', err);
+      }
+    );
+    return () => unsubMyFlight();
+  }, [user, myClaimedMemberId, isLockedCoach, activeGroupId]);
+
+  // 儲存個人航班與抵達資訊（需鎖定身分）
+  const handleSaveFlight = useCallback(
+    async (form: {
+      arrivalFlight: string;
+      arrivalTime: string;
+      departureFlight: string;
+      departureTime: string;
+      checkInNote: string;
+    }): Promise<boolean> => {
+      if (!user || !myClaimedMember) return false;
+      const flightKey = `${activeGroupId}_${myClaimedMember.id}`;
+      const payload: MemberFlightInfo = {
+        groupId: activeGroupId,
+        memberId: myClaimedMember.id,
+        memberName: myClaimedMember.name,
+        arrivalFlight: form.arrivalFlight,
+        arrivalTime: form.arrivalTime,
+        departureFlight: form.departureFlight,
+        departureTime: form.departureTime,
+        checkInNote: form.checkInNote,
+        updatedAt: Date.now(),
+      };
+
+      if (!db) {
+        setFlights((prev) => {
+          const next = { ...prev, [flightKey]: payload };
+          try {
+            localStorage.setItem('okinawa_whale_flights_v1', JSON.stringify(next));
+          } catch {
+            // 忽略儲存限制
+          }
+          return next;
+        });
+        return true;
+      }
+
+      try {
+        const flightRef = doc(
+          db,
+          'artifacts',
+          appId,
+          'public',
+          'data',
+          'member_flights',
+          flightKey
+        );
+        await setDoc(flightRef, payload);
+        return true;
+      } catch (err) {
+        console.error('儲存航班資訊失敗:', err);
+        return false;
+      }
+    },
+    [user, myClaimedMember, activeGroupId]
+  );
 
   // 認領並鎖定成員身分（跨裝置唯一認領）
   const handleClaimMember = useCallback(
@@ -3418,6 +5377,7 @@ export default function App() {
 
   const openCurrencyConverter = useCallback(() => {
     setActiveTab('info');
+    setOpenInfoSections((prev) => ({ ...prev, calc: true }));
     setTimeout(() => {
       if (calcRef.current) {
         calcRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -3531,15 +5491,16 @@ export default function App() {
   };
 
   const navItems: {
-    id: 'today' | 'itinerary' | 'map' | 'info' | 'checklist';
+    id: 'today' | 'itinerary' | 'map' | 'whales' | 'info' | 'checklist';
     label: string;
     Icon: React.ComponentType<{ className?: string }>;
   }[] = [
     { id: 'today', label: '今天', Icon: Home },
     { id: 'itinerary', label: '行程', Icon: CalendarDays },
     { id: 'map', label: '地圖', Icon: MapIcon },
-    { id: 'info', label: '美食與資料', Icon: Info },
-    { id: 'checklist', label: '裝備清單', Icon: ListChecks },
+    { id: 'whales', label: '鯨圖鑑', Icon: BookOpen },
+    { id: 'info', label: '資料', Icon: Info },
+    { id: 'checklist', label: '裝備', Icon: ListChecks },
   ];
 
   return (
@@ -4202,27 +6163,69 @@ export default function App() {
         {/* ---------- TAB 3: 沖繩互動地圖 ---------- */}
         {activeTab === 'map' && <OkinawaMapTab />}
 
-        {/* ---------- TAB 4: 美食、超市與沖繩實用資料 ---------- */}
+        {/* ---------- TAB 4: 大翅鯨圖鑑 ---------- */}
+        {activeTab === 'whales' && <WhaleGuideTab />}
+
+        {/* ---------- TAB 5: 美食、超市與沖繩實用資料 ---------- */}
         {activeTab === 'info' && (
-          <div className="space-y-4">
-            <JpyCalculator calcRef={calcRef} />
+          <div className="space-y-3">
+            {/* 全部展開 / 收合快捷列 */}
+            <div className="flex items-center justify-between gap-2 px-1">
+              <p className="text-[12.5px] font-bold text-[#57534e]">
+                點選各區塊標題可展開／收合
+              </p>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setAllInfoSections(true)}
+                  className="rounded-full border border-[#e7e2d8] bg-white px-3 py-1 text-[12px] font-bold text-[#0369a1] shadow-2xs transition active:scale-95"
+                >
+                  全部展開
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAllInfoSections(false)}
+                  className="rounded-full border border-[#e7e2d8] bg-white px-3 py-1 text-[12px] font-bold text-[#57534e] shadow-2xs transition active:scale-95"
+                >
+                  全部收合
+                </button>
+              </div>
+            </div>
+
+            <JpyCalculator
+              calcRef={calcRef}
+              isOpen={openInfoSections.calc}
+              onToggle={() => toggleInfoSection('calc')}
+            />
+
+            {/* 航班與抵達入住回報（鎖定身分填寫，僅兩位教練可見總表） */}
+            <FlightInfoCard
+              activeGroup={activeGroup}
+              activeGroupId={activeGroupId}
+              myClaimedMember={myClaimedMember}
+              isLockedCoach={isLockedCoach}
+              flights={flights}
+              isOpen={openInfoSections.flight}
+              onToggle={() => toggleInfoSection('flight')}
+              onSaveFlight={handleSaveFlight}
+              onOpenClaimModal={() => {
+                setSyncError(null);
+                setShowMemberModal(true);
+              }}
+            />
 
             {/* 團隊編成與 LINE 聯繫方式 */}
-            <section className="rounded-3xl border border-[#bbf7d0] bg-white p-4 shadow-[0_2px_10px_rgba(6,199,85,0.08)]">
-              <div className="mb-3 flex items-center gap-2">
-                <span className="grid h-9 w-9 place-items-center rounded-2xl bg-[#dcfce7] text-[#06C755]">
-                  <MessageCircle className="h-5 w-5" />
-                </span>
-                <div>
-                  <h3 className="text-[18px] font-bold text-[#0f293a]">
-                    團隊聯繫方式（LINE 為主）
-                  </h3>
-                  <p className="text-[12px] font-semibold text-[#15803d]">
-                    {activeGroup.label}（{activeGroup.dateRange}）· 共 9 位成員
-                  </p>
-                </div>
-              </div>
-
+            <CollapsibleInfoSection
+              title="團隊聯繫方式（LINE 為主）"
+              subtitle={`${activeGroup.label}（${activeGroup.dateRange}）· 共 9 位成員`}
+              subtitleClass="text-[#15803d]"
+              icon={<MessageCircle className="h-5 w-5" />}
+              iconBgClass="bg-[#dcfce7] text-[#06C755]"
+              borderClass="border-[#bbf7d0]"
+              shadowClass="shadow-[0_2px_10px_rgba(6,199,85,0.08)]"
+              isOpen={openInfoSections.line}
+              onToggle={() => toggleInfoSection('line')}
+            >
               <div className="space-y-2.5 rounded-2xl bg-[#f0fdf4] p-3.5 text-[14px] text-[#0f293a]">
                 <div className="flex items-start gap-2">
                   <Users className="mt-0.5 h-4 w-4 shrink-0 text-[#15803d]" />
@@ -4247,24 +6250,20 @@ export default function App() {
                   💡 出發前請確認日本 eSIM / 漫遊已開通且可正常收發 LINE，並請開啟群組通知避免漏接出海集合訊息。
                 </p>
               </div>
-            </section>
+            </CollapsibleInfoSection>
 
             {/* 裝備租借費用（現場繳交日幣） */}
-            <section className="rounded-3xl border border-[#fde68a] bg-white p-4 shadow-[0_2px_10px_rgba(217,119,6,0.08)]">
-              <div className="mb-3 flex items-center gap-2">
-                <span className="grid h-9 w-9 place-items-center rounded-2xl bg-[#fef3c7] text-[#b45309]">
-                  <Coins className="h-5 w-5" />
-                </span>
-                <div>
-                  <h3 className="text-[18px] font-bold text-[#0f293a]">
-                    裝備租借費用
-                  </h3>
-                  <p className="text-[12px] font-semibold text-[#b45309]">
-                    僅限一般蛙鞋（不可使用長蛙鞋）
-                  </p>
-                </div>
-              </div>
-
+            <CollapsibleInfoSection
+              title="裝備租借費用"
+              subtitle="僅限一般蛙鞋（不可使用長蛙鞋）"
+              subtitleClass="text-[#b45309]"
+              icon={<Coins className="h-5 w-5" />}
+              iconBgClass="bg-[#fef3c7] text-[#b45309]"
+              borderClass="border-[#fde68a]"
+              shadowClass="shadow-[0_2px_10px_rgba(217,119,6,0.08)]"
+              isOpen={openInfoSections.rental}
+              onToggle={() => toggleInfoSection('rental')}
+            >
               <div className="divide-y divide-[#f4f0e8] rounded-2xl bg-[#faf7f2] px-3.5 py-1 text-[14.5px]">
                 {RENTAL_ITEMS.map((item) => (
                   <div key={item.name} className="flex items-center justify-between py-2.5">
@@ -4279,24 +6278,17 @@ export default function App() {
               <div className="mt-3 rounded-2xl bg-[#fffbeb] px-3.5 py-2.5 text-[13.5px] font-bold leading-relaxed text-[#92400e]">
                 ⚠️ 若有租借上述裝備，請於現場繳交「日幣現金」給帶隊教練，建議出發前先備妥日幣零錢！
               </div>
-            </section>
+            </CollapsibleInfoSection>
 
             {/* 住宿介紹：Almont Hotel Naha Kenchomae */}
-            <section className="rounded-3xl border border-[#e7e2d8] bg-white p-4 shadow-[0_2px_10px_rgba(12,74,110,0.04)]">
-              <div className="mb-3 flex items-center gap-2">
-                <span className="grid h-9 w-9 place-items-center rounded-2xl bg-[#e0f2fe] text-[#0369a1]">
-                  <Building2 className="h-5 w-5" />
-                </span>
-                <div>
-                  <h3 className="text-[18px] font-bold text-[#0f293a]">
-                    住宿：Almont Hotel 那霸縣廳前
-                  </h3>
-                  <p className="text-[12px] font-semibold text-[#6b7280]">
-                    Almont Hotel Naha Kenchomae
-                  </p>
-                </div>
-              </div>
-
+            <CollapsibleInfoSection
+              title="住宿：Almont Hotel 那霸縣廳前"
+              subtitle="Almont Hotel Naha Kenchomae"
+              icon={<Building2 className="h-5 w-5" />}
+              iconBgClass="bg-[#e0f2fe] text-[#0369a1]"
+              isOpen={openInfoSections.hotel}
+              onToggle={() => toggleInfoSection('hotel')}
+            >
               <div className="space-y-2 rounded-2xl bg-[#faf7f2] p-3.5 text-[14px] text-[#0f293a]">
                 <p>
                   <strong className="text-[#0369a1]">交通極便利：</strong>
@@ -4321,24 +6313,17 @@ export default function App() {
                 <Navigation className="h-4 w-4" />
                 <span>在 Google Maps 查看飯店位置</span>
               </a>
-            </section>
+            </CollapsibleInfoSection>
 
             {/* 沖繩那霸美食推薦 */}
-            <section className="rounded-3xl border border-[#e7e2d8] bg-white p-4 shadow-[0_2px_10px_rgba(12,74,110,0.04)]">
-              <div className="mb-3 flex items-center gap-2">
-                <span className="grid h-9 w-9 place-items-center rounded-2xl bg-[#fff7ed] text-[#c2410c]">
-                  <Utensils className="h-5 w-5" />
-                </span>
-                <div>
-                  <h3 className="text-[18px] font-bold text-[#0f293a]">
-                    沖繩那霸美食推薦
-                  </h3>
-                  <p className="text-[12px] font-semibold text-[#6b7280]">
-                    皆位於飯店步行可達範圍
-                  </p>
-                </div>
-              </div>
-
+            <CollapsibleInfoSection
+              title="沖繩那霸美食推薦"
+              subtitle={`皆位於飯店步行可達範圍 · ${OKINAWA_RESTAURANTS.length} 間精選`}
+              icon={<Utensils className="h-5 w-5" />}
+              iconBgClass="bg-[#fff7ed] text-[#c2410c]"
+              isOpen={openInfoSections.food}
+              onToggle={() => toggleInfoSection('food')}
+            >
               <div className="space-y-2.5">
                 {OKINAWA_RESTAURANTS.map((r) => (
                   <div
@@ -4373,24 +6358,17 @@ export default function App() {
                   </div>
                 ))}
               </div>
-            </section>
+            </CollapsibleInfoSection>
 
             {/* 飯店周邊超市、藥妝與市場 */}
-            <section className="rounded-3xl border border-[#e7e2d8] bg-white p-4 shadow-[0_2px_10px_rgba(12,74,110,0.04)]">
-              <div className="mb-3 flex items-center gap-2">
-                <span className="grid h-9 w-9 place-items-center rounded-2xl bg-[#ccfbf1] text-[#0f766e]">
-                  <ShoppingBag className="h-5 w-5" />
-                </span>
-                <div>
-                  <h3 className="text-[18px] font-bold text-[#0f293a]">
-                    沖繩超市・藥妝・採買推薦
-                  </h3>
-                  <p className="text-[12px] font-semibold text-[#6b7280]">
-                    那霸縣廳前＆國際通周邊
-                  </p>
-                </div>
-              </div>
-
+            <CollapsibleInfoSection
+              title="沖繩超市・藥妝・採買推薦"
+              subtitle={`那霸縣廳前＆國際通周邊 · ${OKINAWA_MARKETS.length} 處`}
+              icon={<ShoppingBag className="h-5 w-5" />}
+              iconBgClass="bg-[#ccfbf1] text-[#0f766e]"
+              isOpen={openInfoSections.market}
+              onToggle={() => toggleInfoSection('market')}
+            >
               <div className="space-y-2.5">
                 {OKINAWA_MARKETS.map((m) => (
                   <div
@@ -4425,19 +6403,18 @@ export default function App() {
                   </div>
                 ))}
               </div>
-            </section>
+            </CollapsibleInfoSection>
 
             {/* Visit Japan Web 與沖繩入境/追鯨須知 */}
-            <section className="rounded-3xl border border-[#e7e2d8] bg-white p-4 shadow-[0_2px_10px_rgba(12,74,110,0.04)]">
-              <div className="mb-3 flex items-center gap-2">
-                <span className="grid h-9 w-9 place-items-center rounded-2xl bg-[#eff6ff] text-[#1d4ed8]">
-                  <ShieldAlert className="h-5 w-5" />
-                </span>
-                <h3 className="text-[18px] font-bold text-[#0f293a]">
-                  Visit Japan Web & 沖繩須知
-                </h3>
-              </div>
-
+            <CollapsibleInfoSection
+              title="Visit Japan Web & 沖繩須知"
+              subtitle="飯店地址郵遞區號一鍵複製・入境電壓提醒"
+              subtitleClass="text-[#1d4ed8]"
+              icon={<ShieldAlert className="h-5 w-5" />}
+              iconBgClass="bg-[#eff6ff] text-[#1d4ed8]"
+              isOpen={openInfoSections.vjw}
+              onToggle={() => toggleInfoSection('vjw')}
+            >
               <a
                 href="https://services.digital.go.jp/zh-cmn-hant/visit-japan-web/"
                 target="_blank"
@@ -4447,6 +6424,8 @@ export default function App() {
                 <span>前往 Visit Japan Web 填寫入境申報</span>
                 <ExternalLink className="h-4 w-4 shrink-0" />
               </a>
+
+              <VisitJapanWebCopyBox />
 
               <div className="grid grid-cols-1 gap-2 rounded-2xl bg-[#fffaf0] p-3.5 text-[13.5px] font-medium text-[#451a03]">
                 <div className="flex items-start gap-2">
@@ -4470,7 +6449,7 @@ export default function App() {
                   </span>
                 </div>
               </div>
-            </section>
+            </CollapsibleInfoSection>
           </div>
         )}
 
@@ -4649,9 +6628,9 @@ export default function App() {
         )}
       </main>
 
-      {/* ==================== 底部 5 分頁導覽列 (68px) ==================== */}
+      {/* ==================== 底部 6 分頁導覽列 (68px) ==================== */}
       <nav className="fixed inset-x-0 bottom-0 z-30 h-[68px] border-t border-[#e7e2d8] bg-white/95 backdrop-blur">
-        <div className="mx-auto grid h-full max-w-md grid-cols-5">
+        <div className="mx-auto grid h-full max-w-md grid-cols-6">
           {navItems.map(({ id, label, Icon }) => {
             const isActive = activeTab === id;
             return (
@@ -4667,12 +6646,12 @@ export default function App() {
                   }
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className={`flex flex-col items-center justify-center gap-0.5 py-1 transition ${
+                className={`flex min-h-[44px] flex-col items-center justify-center gap-0.5 py-1 transition ${
                   isActive ? 'text-[#0369a1]' : 'text-[#78716c]'
                 }`}
               >
                 <span
-                  className={`grid h-9 w-14 place-items-center rounded-full transition-colors ${
+                  className={`grid h-9 w-11 place-items-center rounded-full transition-colors ${
                     isActive ? 'bg-[#e0f2fe]' : 'bg-transparent'
                   }`}
                 >
@@ -4680,7 +6659,7 @@ export default function App() {
                     className={`h-5 w-5 ${isActive ? 'stroke-[2.5]' : 'stroke-[2]'}`}
                   />
                 </span>
-                <span className="text-[11px] font-bold leading-none">{label}</span>
+                <span className="whitespace-nowrap text-[10.5px] font-bold leading-none">{label}</span>
               </button>
             );
           })}
